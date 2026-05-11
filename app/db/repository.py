@@ -19,10 +19,20 @@ from .models import InterviewAnswer, PersonaRecord, SafetyEvent
 
 # --- 프로세스 인메모리 mock 저장소 -------------------------------------------
 # 워커 1개 가정. asyncio.Lock 으로 동시 갱신 직렬화.
+# 모듈 import 시점에는 이벤트 루프가 없을 수 있어 (Python 3.10+ 경고, 3.12+
+# RuntimeError 위험) 락은 처음 사용 시점에 lazy init 한다.
 _mock_personas: dict[UUID, PersonaRecord] = {}
 _mock_interviews: dict[UUID, list[InterviewAnswer]] = {}
 _mock_safety_logs: list[SafetyEvent] = []
-_mock_lock = asyncio.Lock()
+_mock_lock: asyncio.Lock | None = None
+
+
+def _get_mock_lock() -> asyncio.Lock:
+    """실행 중인 이벤트 루프 위에서 락을 lazy 생성."""
+    global _mock_lock
+    if _mock_lock is None:
+        _mock_lock = asyncio.Lock()
+    return _mock_lock
 
 
 def _real_db_not_supported(reason: str) -> NotImplementedError:
@@ -37,7 +47,7 @@ async def get_persona(persona_id: UUID) -> PersonaRecord | None:
     """`personas` 1행 조회 (PK personas_id)."""
     settings = get_settings()
     if settings.use_db_mock:
-        async with _mock_lock:
+        async with _get_mock_lock():
             return _mock_personas.get(persona_id)
     raise _real_db_not_supported("get_persona")
 
@@ -46,7 +56,7 @@ async def update_persona_status(persona_id: UUID, status: str) -> None:
     """`personas.status` 갱신."""
     settings = get_settings()
     if settings.use_db_mock:
-        async with _mock_lock:
+        async with _get_mock_lock():
             record = _mock_personas.get(persona_id)
             if record is None:
                 return
@@ -63,7 +73,7 @@ async def delete_persona_tx(persona_id: UUID) -> None:
     """
     settings = get_settings()
     if settings.use_db_mock:
-        async with _mock_lock:
+        async with _get_mock_lock():
             _mock_personas.pop(persona_id, None)
             _mock_interviews.pop(persona_id, None)
         return
@@ -75,7 +85,7 @@ async def get_persona_interviews(persona_id: UUID) -> list[InterviewAnswer]:
     """`persona_interviews` 의 전체 답변(보통 10개)을 question_number 오름차순으로 반환."""
     settings = get_settings()
     if settings.use_db_mock:
-        async with _mock_lock:
+        async with _get_mock_lock():
             answers = list(_mock_interviews.get(persona_id, []))
         return sorted(answers, key=lambda a: a.question_number)
     raise _real_db_not_supported("get_persona_interviews")
@@ -106,7 +116,7 @@ async def insert_safety_log(
             deceted_at=deceted_at,
             cooldown_ended_at=cooldown_ended_at,
         )
-        async with _mock_lock:
+        async with _get_mock_lock():
             _mock_safety_logs.append(event)
         return
     raise _real_db_not_supported("insert_safety_log")
@@ -117,7 +127,7 @@ async def mock_seed_persona(record: PersonaRecord) -> None:
     """테스트 편의: mock 저장소에 페르소나 1건 시드."""
     if not get_settings().use_db_mock:
         raise RuntimeError("mock_seed_persona 는 USE_DB_MOCK=true 일 때만 호출 가능.")
-    async with _mock_lock:
+    async with _get_mock_lock():
         _mock_personas[record.personas_id] = record
 
 
@@ -125,7 +135,7 @@ async def mock_seed_interviews(persona_id: UUID, answers: list[InterviewAnswer])
     """테스트 편의: mock 저장소에 인터뷰 답변 시드."""
     if not get_settings().use_db_mock:
         raise RuntimeError("mock_seed_interviews 는 USE_DB_MOCK=true 일 때만 호출 가능.")
-    async with _mock_lock:
+    async with _get_mock_lock():
         _mock_interviews[persona_id] = list(answers)
 
 
@@ -133,13 +143,13 @@ async def mock_get_safety_logs() -> list[SafetyEvent]:
     """테스트 검증용: mock 안전 로그 스냅샷."""
     if not get_settings().use_db_mock:
         raise RuntimeError("mock_get_safety_logs 는 USE_DB_MOCK=true 일 때만 호출 가능.")
-    async with _mock_lock:
+    async with _get_mock_lock():
         return list(_mock_safety_logs)
 
 
 async def _reset_mock() -> None:
     """테스트 격리: 모든 mock 저장소를 비운다."""
-    async with _mock_lock:
+    async with _get_mock_lock():
         _mock_personas.clear()
         _mock_interviews.clear()
         _mock_safety_logs.clear()
