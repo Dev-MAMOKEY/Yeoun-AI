@@ -292,11 +292,23 @@ class GemmaLLM:
             **_SAMPLING,
         )
 
-        thread = Thread(
-            target=self._model.generate,  # type: ignore[union-attr]
-            kwargs=generation_kwargs,
-            daemon=True,
-        )
+        def _generate_safely() -> None:
+            # `model.generate` 가 예외로 죽으면 `TextIteratorStreamer` 의 내부 큐에
+            # StopIteration 신호가 안 들어가 `next(streamer)` 가 영구 블록된다.
+            # finally 에서 `streamer.end()` 를 직접 호출해 호출 측 async iterator 가
+            # 정상 종료 시그널을 받도록 한다.
+            try:
+                self._model.generate(**generation_kwargs)  # type: ignore[union-attr]
+            except Exception:
+                logger.exception("Gemma generate 예외 — streamer 종료 신호 강제 주입")
+                raise
+            finally:
+                try:
+                    streamer.end()  # type: ignore[attr-defined]
+                except Exception:
+                    logger.exception("streamer.end() 호출 실패")
+
+        thread = Thread(target=_generate_safely, daemon=True)
         thread.start()
 
         loop = asyncio.get_running_loop()
@@ -309,3 +321,10 @@ class GemmaLLM:
         finally:
             # 생성이 끝났거나 호출자가 중단했을 때 스레드 회수.
             await loop.run_in_executor(None, thread.join, 5.0)
+            if thread.is_alive():
+                # 5 초 타임아웃 후에도 살아있으면 daemon 이라도 GPU 점유 우려.
+                # 후속 stream_response 호출에서 같은 GPU 자원이 겹칠 수 있으므로
+                # 로그로 분명히 남긴다 — `gpu_semaphore` 직렬화는 호출자(#10) 책임.
+                logger.warning(
+                    "Gemma generate 스레드가 join 타임아웃 후에도 alive — GPU 점유 가능"
+                )
