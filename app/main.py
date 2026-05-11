@@ -17,8 +17,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import __version__
 from .config import get_settings
+from .db.engine import ping as db_ping
 from .routers import health
 from .schemas.common import fail
+from .sessions.store import SessionStore
 
 logger = logging.getLogger("yeoun")
 
@@ -39,6 +41,20 @@ async def lifespan(app: FastAPI):
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
     app.state.started_at = time.time()
+
+    # 부팅 시 DB 연결성 1회 진단 — 부팅 직후 빠르게 알려주기 위한 로그용.
+    # 런타임 db_status 는 캐시하지 않고 health 엔드포인트가 매 호출마다 ping 한다.
+    try:
+        await db_ping()
+        logger.info("DB ping 성공")
+    except Exception as exc:  # noqa: BLE001 — 부팅 진단 로그만, 기동은 계속
+        logger.warning("DB ping 실패 (런타임 health 가 재시도): %s", exc)
+
+    # 세션 스토어 + TTL sweeper 백그라운드 태스크 기동.
+    session_store = SessionStore()
+    await session_store.start()
+    app.state.session_store = session_store
+
     logger.info(
         "Yeoun Persona Engine 시작 (version=%s, gpu_enabled=%s, db_mock=%s)",
         __version__,
@@ -48,6 +64,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        await session_store.stop()
         logger.info("Yeoun Persona Engine 종료 중")
 
 

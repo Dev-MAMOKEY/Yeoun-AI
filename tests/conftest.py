@@ -19,10 +19,15 @@ def _settings_env(monkeypatch):
     monkeypatch.setenv("LOG_LEVEL", "WARNING")
 
     from app.config import get_settings
+    from app.db.engine import get_engine, get_sessionmaker
 
     get_settings.cache_clear()
+    get_engine.cache_clear()
+    get_sessionmaker.cache_clear()
     yield
     get_settings.cache_clear()
+    get_engine.cache_clear()
+    get_sessionmaker.cache_clear()
 
 
 @pytest.fixture

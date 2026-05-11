@@ -5,6 +5,7 @@
 실제 값으로 전환된다.
 """
 
+import asyncio
 import time
 from typing import Literal
 
@@ -14,7 +15,22 @@ from pydantic import BaseModel, Field
 from .. import __version__
 from ..auth import require_internal_token
 from ..config import Settings, get_settings
+from ..db.engine import ping as db_ping
 from ..schemas.common import Envelope, ok
+from ..sessions.store import SessionStore
+
+# health 가 매 호출마다 SELECT 1 으로 DB 상태를 확인할 때 사용하는 타임아웃.
+# DB 가 응답이 늦더라도 헬스 응답이 무한정 늘어지지 않도록 짧게 둔다.
+_DB_PING_TIMEOUT_SECONDS = 2.0
+
+
+async def _measure_db_status() -> str:
+    """타임아웃 안에서 `SELECT 1` 시도해 'ok' 또는 'error' 반환."""
+    try:
+        await asyncio.wait_for(db_ping(), timeout=_DB_PING_TIMEOUT_SECONDS)
+        return "ok"
+    except Exception:  # noqa: BLE001 — 모든 실패를 degraded 로 환원
+        return "error"
 
 router = APIRouter(prefix="/internal", tags=["health"])
 
@@ -49,8 +65,11 @@ class HealthData(BaseModel):
     gpu_enabled: bool = Field(..., description="`GPU_ENABLED` 설정. false이면 모델 로더가 더미 동작.")
     db: str = Field(
         ...,
-        description="DB 접속 상태. `mock`/`not_initialized`/`ok`/`error`.",
-        examples=["mock", "not_initialized", "ok", "error"],
+        description=(
+            "DB 접속 상태. `USE_DB_MOCK=true` 모드에서는 즉시 `ok`, 실 모드에서는 "
+            "매 호출마다 `SELECT 1` 실측 결과. 타임아웃·예외 시 `error`."
+        ),
+        examples=["ok", "error"],
     )
 
 
@@ -73,27 +92,37 @@ async def health(
     settings: Settings = Depends(get_settings),
 ) -> Envelope[HealthData]:
     started_at: float | None = getattr(request.app.state, "started_at", None)
+    # 매 호출마다 DB 상태를 실측. lifespan 부팅 시 ping 결과는 캐시하지 않는다.
+    db_status = await _measure_db_status()
+    session_store: SessionStore | None = getattr(request.app.state, "session_store", None)
+    sessions = session_store.count() if session_store is not None else 0
     models = ModelStatus()
-    # lifespan 미완료면 즉시 `degraded`. lifespan은 됐어도 상주 모델(LLM/TTS)이
-    # 아직 안 로드됐으면 `starting`. 둘 다 loaded면 `ok`. Ditto는 온디맨드
-    # 로더라 평시 not_loaded가 정상 상태라 readiness 판정에 넣지 않는다.
+
+    # status 도출:
+    # - lifespan 미완료 → degraded
+    # - DB ping 실패 → degraded
+    # - 상주 모델(LLM/TTS) 둘 다 loaded → ok (Ditto 는 온디맨드라 평시 not_loaded 정상)
+    # - 그 외 → starting
     if started_at is None:
         status_value: Literal["ok", "degraded", "starting"] = "degraded"
         uptime = 0.0
-    elif models.llm == "loaded" and models.tts == "loaded":
-        status_value = "ok"
-        uptime = max(0.0, time.time() - started_at)
     else:
-        status_value = "starting"
         uptime = max(0.0, time.time() - started_at)
+        if db_status == "error":
+            status_value = "degraded"
+        elif models.llm == "loaded" and models.tts == "loaded":
+            status_value = "ok"
+        else:
+            status_value = "starting"
+
     return ok(
         HealthData(
             status=status_value,
             version=__version__,
             uptime_seconds=uptime,
             models=models,
-            sessions=0,
+            sessions=sessions,
             gpu_enabled=settings.gpu_enabled,
-            db="mock" if settings.use_db_mock else "not_initialized",
+            db=db_status,
         )
     )
