@@ -161,12 +161,54 @@ class GemmaLLM:
     def variant(self) -> Literal["awq", "bf16"] | None:
         return self._loaded_variant
 
-    # --- 추론 (더미) -------------------------------------------------------
+    # --- 추론 ---------------------------------------------------------------
     async def transcribe(self, audio_path: str | Path) -> str:
-        """짧은 오디오 → 한국어 전사. 더미 모드는 고정 문자열."""
+        """짧은 오디오 → 한국어 전사. 더미 모드는 고정 문자열.
+
+        전사는 deterministic 결과가 필요하므로 `do_sample=False` (greedy) 로 호출.
+        멀티모달 입력은 `apply_chat_template` 의 mixed content 메시지에 `audio` 타입
+        부분을 넣어 전달한다.
+        """
         if not self._gpu_enabled:
             return f"[더미 전사] {Path(audio_path).name}"
-        raise NotImplementedError("실 전사 분기는 다음 커밋에서 구현.")
+        if self._model is None or self._processor is None:
+            raise RuntimeError("GemmaLLM 이 로드되지 않았습니다.")
+        return await asyncio.to_thread(self._run_transcribe, str(audio_path))
+
+    def _run_transcribe(self, audio_path: str) -> str:
+        """동기 전사 — `asyncio.to_thread` 안에서 호출."""
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "audio", "url": audio_path},
+                    {
+                        "type": "text",
+                        "text": (
+                            "위 음성을 한국어로 그대로 전사해 주세요. "
+                            "부가 설명 없이 발화 텍스트만 반환합니다."
+                        ),
+                    },
+                ],
+            }
+        ]
+        inputs = self._processor.apply_chat_template(  # type: ignore[union-attr]
+            messages,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt",
+            add_generation_prompt=True,
+        ).to(self._model.device)  # type: ignore[union-attr]
+        input_len = inputs["input_ids"].shape[-1]
+        outputs = self._model.generate(  # type: ignore[union-attr]
+            **inputs,
+            max_new_tokens=512,
+            do_sample=False,
+        )
+        decoded = self._processor.decode(  # type: ignore[union-attr]
+            outputs[0][input_len:], skip_special_tokens=True
+        )
+        return decoded.strip()
 
     async def stream_response(
         self,
