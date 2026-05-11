@@ -60,8 +60,8 @@ async def test_registry_lifecycle_in_dummy_mode():
 
     assert registry.llm is not None
     assert registry.llm.status == "loaded"
-    # GPU 세마포어가 1건만 허용하도록 초기화돼 있다.
-    assert registry.gpu_semaphore._value == 1  # type: ignore[attr-defined]
+    # GPU 세마포어가 1건만 허용하도록 초기화돼 있다 (공개 property 로 검증).
+    assert registry.gpu_concurrency == 1
 
     await registry.stop()
     assert registry.llm is None

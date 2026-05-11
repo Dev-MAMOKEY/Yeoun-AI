@@ -23,12 +23,16 @@ from .llm_gemma import GemmaLLM
 logger = logging.getLogger("yeoun")
 
 
+# GPU 추론 진입 직렬화 폭 — 단일 워커 + GPU 1장 전제로 한 번에 1건만 허용.
+GPU_CONCURRENCY: int = 1
+
+
 class ModelRegistry:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self.llm: GemmaLLM | None = None
         # TTS / Ditto 는 이슈 #7 / #8 에서 추가.
-        self._gpu_semaphore = asyncio.Semaphore(1)
+        self._gpu_semaphore = asyncio.Semaphore(GPU_CONCURRENCY)
 
     async def start(self) -> None:
         """상주 모델을 부팅 시점에 로드."""
@@ -52,3 +56,8 @@ class ModelRegistry:
     def gpu_semaphore(self) -> asyncio.Semaphore:
         """GPU 추론 진입 직렬화용 세마포어 — 호출자가 `async with` 로 보호."""
         return self._gpu_semaphore
+
+    @property
+    def gpu_concurrency(self) -> int:
+        """GPU 추론 동시 허용 개수 (테스트·모니터링용 공개 상수)."""
+        return GPU_CONCURRENCY
