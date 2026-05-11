@@ -72,12 +72,14 @@ docker compose down
 
 > Docker 는 `iptables` 의 `DOCKER-USER` 체인을 가로채므로, host 의 일반 `INPUT` 체인이나 `ufw` 기본 정책만으로는 컨테이너 포트 보호가 새는 경우가 있다. 반드시 `DOCKER-USER` 체인에 직접 룰을 넣는다.
 
+> Docker 는 `DOCKER-USER` 체인 끝에 항상 `RETURN` 을 자동 삽입한다. 따라서 `-A` (append) 로 붙인 DROP 은 `RETURN` 다음에 위치해 절대 도달하지 않는다. **반드시 `-I` (insert) + 명시적 위치 번호로 ACCEPT 를 1번, DROP 을 2번에 둬서 `RETURN` 보다 앞에 위치시킨다.**
+
 Spring Boot 머신의 IP 가 `192.168.10.30` 이라고 가정한 예시:
 
 ```bash
-# Spring Boot 머신만 :8000 허용, 나머지는 모두 DROP
-sudo iptables -I DOCKER-USER -p tcp --dport 8000 -s 192.168.10.30 -j ACCEPT
-sudo iptables -A DOCKER-USER -p tcp --dport 8000 -j DROP
+# Spring Boot 머신만 :8000 허용 (위치 1), 그 외는 모두 DROP (위치 2). RETURN 은 그 뒤.
+sudo iptables -I DOCKER-USER 1 -p tcp --dport 8000 -s 192.168.10.30 -j ACCEPT
+sudo iptables -I DOCKER-USER 2 -p tcp --dport 8000 -j DROP
 sudo iptables -L DOCKER-USER -n --line-numbers
 ```
 
