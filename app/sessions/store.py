@@ -73,12 +73,16 @@ class SessionStore:
         return True
 
     def add_message(self, session_id: UUID, message: MessageRecord) -> bool:
-        """세션 history 에 메시지 추가 + last_activity_at 갱신."""
+        """세션 history 에 메시지 추가 + last_activity_at 갱신.
+
+        `message.created_at` 이 호출자 측에서 과거 시각으로 들어와도 sweeper 가
+        활성 세션을 조기 만료시키지 않도록 `max` 로 단조 증가만 허용한다.
+        """
         session = self._sessions.get(session_id)
         if session is None:
             return False
         session.history.append(message)
-        session.last_activity_at = message.created_at
+        session.last_activity_at = max(session.last_activity_at, message.created_at)
         return True
 
     def end(self, session_id: UUID) -> SessionState | None:
