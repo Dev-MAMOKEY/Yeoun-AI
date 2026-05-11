@@ -73,11 +73,16 @@ async def health(
     settings: Settings = Depends(get_settings),
 ) -> Envelope[HealthData]:
     started_at: float | None = getattr(request.app.state, "started_at", None)
+    models = ModelStatus()
+    # lifespan 미완료면 즉시 `degraded`. lifespan은 됐어도 상주 모델(LLM/TTS)이
+    # 아직 안 로드됐으면 `starting`. 둘 다 loaded면 `ok`. Ditto는 온디맨드
+    # 로더라 평시 not_loaded가 정상 상태라 readiness 판정에 넣지 않는다.
     if started_at is None:
-        # lifespan이 시작 시각을 설정하지 못한 상태 — `degraded`로 노출해
-        # 새 timestamp로 실패를 가리지 않게 한다.
         status_value: Literal["ok", "degraded", "starting"] = "degraded"
         uptime = 0.0
+    elif models.llm == "loaded" and models.tts == "loaded":
+        status_value = "ok"
+        uptime = max(0.0, time.time() - started_at)
     else:
         status_value = "starting"
         uptime = max(0.0, time.time() - started_at)
@@ -86,7 +91,7 @@ async def health(
             status=status_value,
             version=__version__,
             uptime_seconds=uptime,
-            models=ModelStatus(),
+            models=models,
             sessions=0,
             gpu_enabled=settings.gpu_enabled,
             db="mock" if settings.use_db_mock else "not_initialized",
