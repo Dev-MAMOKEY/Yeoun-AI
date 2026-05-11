@@ -41,7 +41,8 @@ def test_health_returns_envelope_on_success(client):
     assert data["status"] in {"ok", "degraded", "starting"}
     assert data["version"] == "0.1.0"
     assert data["gpu_enabled"] is False
-    assert data["db"] == "mock"
+    # USE_DB_MOCK=true 환경에서는 lifespan 의 db_ping 이 즉시 ok 반환.
+    assert data["db"] == "ok"
     assert data["sessions"] == 0
     assert set(data["models"].keys()) == {"llm", "tts", "ditto"}
     assert all(v == "not_loaded" for v in data["models"].values())
