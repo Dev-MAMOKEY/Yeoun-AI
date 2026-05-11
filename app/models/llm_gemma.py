@@ -25,7 +25,22 @@ logger = logging.getLogger("yeoun")
 _SAMPLING = {"temperature": 1.0, "top_p": 0.95, "top_k": 64}
 
 # 명세서 결정 — KV 캐시 절약 위해 컨텍스트 8K 로 제한 (모델 자체는 256K 까지 지원).
+# 시스템 프롬프트 + 히스토리 + 현재 입력 합계. 호출자(#10) 가 히스토리를 자른다.
 _MAX_CONTEXT_TOKENS = 8192
+# 한 응답이 생성하는 최대 토큰 수 — 한국어 단문 응답 위주라 1024 면 충분.
+_MAX_RESPONSE_TOKENS = 1024
+
+# 스트리밍 종료를 알리는 sentinel — `run_in_executor` 로 next 결과를 await 할 때
+# StopIteration 이 그대로 yield 되지 못해 별도 표식 객체로 대신한다.
+_STOP_SENTINEL: object = object()
+
+
+def _next_or_stop(iterator):  # type: ignore[no-untyped-def]
+    """sync iterator 의 다음 값을 가져오거나 StopIteration → sentinel 로 변환."""
+    try:
+        return next(iterator)
+    except StopIteration:
+        return _STOP_SENTINEL
 
 _DUMMY_RESPONSE_TOKENS = (
     "[",
@@ -217,11 +232,80 @@ class GemmaLLM:
         history: list[dict],
         user_audio_path: str | Path,
     ) -> AsyncIterator[str]:
-        """audio-in 응답을 토큰 단위로 yield. 더미 모드는 고정 토큰 시퀀스."""
+        """audio-in 응답을 토큰 단위로 yield.
+
+        구성: 시스템 프롬프트 + 텍스트 히스토리 + 현재 사용자 음성 메시지.
+        `TextIteratorStreamer` 를 별도 스레드에 띄우고, sync iterator 결과를
+        `loop.run_in_executor` 로 가져와 async 시퀀스로 변환한다.
+        더미 모드는 고정 토큰 시퀀스.
+
+        Args:
+            system_prompt: 시스템 프롬프트 본문. 페르소나 정체성·인터뷰 답변
+                10 개·응답 정책이 합쳐진 문자열 (#10 에서 조립).
+            history: 텍스트 메시지 히스토리. 각 항목 `{"role": "user"|"assistant",
+                "text": str}` 형식.
+            user_audio_path: 현재 사용자 음성 파일 경로.
+        """
         if not self._gpu_enabled:
             for token in _DUMMY_RESPONSE_TOKENS:
                 # 실모드 흉내내기 위해 한 토큰당 짧은 await.
                 await asyncio.sleep(0)
                 yield token
             return
-        raise NotImplementedError("실 스트림 분기는 다음 커밋에서 구현.")
+        if self._model is None or self._processor is None:
+            raise RuntimeError("GemmaLLM 이 로드되지 않았습니다.")
+
+        from threading import Thread
+
+        from transformers import TextIteratorStreamer  # type: ignore[import-not-found]
+
+        # 메시지 조립 — 시스템 + 히스토리 + 현재 audio.
+        messages: list[dict] = [{"role": "system", "content": system_prompt}]
+        for msg in history:
+            messages.append({"role": msg["role"], "content": msg["text"]})
+        messages.append(
+            {
+                "role": "user",
+                "content": [{"type": "audio", "url": str(user_audio_path)}],
+            }
+        )
+
+        inputs = self._processor.apply_chat_template(  # type: ignore[union-attr]
+            messages,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt",
+            add_generation_prompt=True,
+        ).to(self._model.device)  # type: ignore[union-attr]
+
+        streamer = TextIteratorStreamer(
+            self._processor.tokenizer,  # type: ignore[union-attr]
+            skip_prompt=True,
+            skip_special_tokens=True,
+        )
+
+        generation_kwargs = dict(
+            **inputs,
+            streamer=streamer,
+            max_new_tokens=_MAX_RESPONSE_TOKENS,
+            do_sample=True,
+            **_SAMPLING,
+        )
+
+        thread = Thread(
+            target=self._model.generate,  # type: ignore[union-attr]
+            kwargs=generation_kwargs,
+            daemon=True,
+        )
+        thread.start()
+
+        loop = asyncio.get_running_loop()
+        try:
+            while True:
+                token = await loop.run_in_executor(None, _next_or_stop, streamer)
+                if token is _STOP_SENTINEL:
+                    break
+                yield token
+        finally:
+            # 생성이 끝났거나 호출자가 중단했을 때 스레드 회수.
+            await loop.run_in_executor(None, thread.join, 5.0)
