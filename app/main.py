@@ -32,10 +32,12 @@ async def lifespan(app: FastAPI):
     configure stdlib logging.
     """
     settings = get_settings()
+    # `basicConfig` is a no-op when handlers already exist (e.g. pytest's
+    # `caplog` or operator-configured logging), so we don't pass `force=True`
+    # and avoid resetting handlers on every lifespan start.
     logging.basicConfig(
         level=settings.log_level.upper(),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
-        force=True,
     )
     app.state.started_at = time.time()
     logger.info(
@@ -111,7 +113,7 @@ async def _http_exception_handler(request: Request, exc: StarletteHTTPException)
     return JSONResponse(
         status_code=exc.status_code,
         content=envelope.model_dump(),
-        headers=getattr(exc, "headers", None),
+        headers=exc.headers,
     )
 
 
