@@ -25,8 +25,12 @@ def _settings_env(monkeypatch):
 
 
 @pytest.fixture
-def client():
-    """TestClient with lifespan startup/shutdown triggered."""
+def client(_settings_env):
+    """TestClient with lifespan startup/shutdown triggered.
+
+    Declares `_settings_env` as an explicit dependency so test environment
+    setup is guaranteed regardless of fixture scope changes in the future.
+    """
     from app.main import app
 
     with TestClient(app) as test_client:
