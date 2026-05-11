@@ -1,0 +1,53 @@
+# ---------------------------------------------------------------------------
+# Yeoun Persona Engine — runtime dependencies
+#
+# Target hardware: NVIDIA RTX PRO 4000 Blackwell (sm_120), 24GB VRAM
+# Required CUDA: 12.8+
+# Required Python: 3.11+
+#
+# Install PyTorch with the Blackwell-compatible CUDA 12.8 wheels:
+#   pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu128
+# ---------------------------------------------------------------------------
+--extra-index-url https://download.pytorch.org/whl/cu128
+
+# --- Web framework -----------------------------------------------------------
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.9.0
+pydantic-settings>=2.6.0
+python-multipart>=0.0.18
+sse-starlette>=2.1.3
+
+# --- Async DB ----------------------------------------------------------------
+sqlalchemy[asyncio]>=2.0.36
+asyncpg>=0.30.0
+
+# --- Audio I/O ---------------------------------------------------------------
+librosa>=0.10.2
+soundfile>=0.12.1
+numpy>=1.26
+
+# --- ML / GPU stack (Blackwell needs CUDA 12.8 wheels) -----------------------
+torch>=2.7.0
+torchaudio>=2.7.0
+transformers>=4.50.0
+accelerate>=1.2.0
+safetensors>=0.4.5
+
+# --- Quantization ------------------------------------------------------------
+# AWQ INT4. Blackwell (sm_120) kernel coverage may be partial; loader falls
+# back to BF16 at runtime when kernels are unavailable.
+autoawq>=0.2.7
+
+# --- TTS (k2-fsa/OmniVoice) --------------------------------------------------
+# If the PyPI package is unavailable, install from upstream:
+#   pip install git+https://github.com/k2-fsa/OmniVoice.git
+omnivoice
+
+# --- TensorRT runtime (Ditto-TalkingHead) ------------------------------------
+tensorrt>=10.7.0
+pycuda>=2025.1
+
+# NOTE: Ditto-TalkingHead itself ships as a standalone repository, not a pip
+# package. `scripts/download_models.py` clones it into ./vendor/ditto-talkinghead
+# and the loader imports from that path.
