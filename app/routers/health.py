@@ -65,8 +65,11 @@ class HealthData(BaseModel):
     gpu_enabled: bool = Field(..., description="`GPU_ENABLED` 설정. false이면 모델 로더가 더미 동작.")
     db: str = Field(
         ...,
-        description="DB 접속 상태. `mock`/`not_initialized`/`ok`/`error`.",
-        examples=["mock", "not_initialized", "ok", "error"],
+        description=(
+            "DB 접속 상태. `USE_DB_MOCK=true` 모드에서는 즉시 `ok`, 실 모드에서는 "
+            "매 호출마다 `SELECT 1` 실측 결과. 타임아웃·예외 시 `error`."
+        ),
+        examples=["ok", "error"],
     )
 
 
