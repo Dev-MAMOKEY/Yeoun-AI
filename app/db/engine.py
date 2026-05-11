@@ -48,15 +48,17 @@ def get_sessionmaker() -> async_sessionmaker[AsyncSession] | None:
 async def ping() -> bool:
     """실 DB 연결성 점검. `SELECT 1` 한 번. mock 모드면 항상 True.
 
-    헬스 체크 부팅 단계(`/internal/health` 의 `db` 필드 도출) 에서 사용.
-    예외 발생 시 False 반환하여 호출자가 `db_status="error"` 로 표시.
+    `/internal/health` 가 매 호출마다 짧은 타임아웃 안에서 부르므로 ORM session
+    대신 raw connection (`engine.connect()`) 을 빌려 `SELECT 1` 만 실행한다.
+    트랜잭션·rollback 처리 없이 connection 만 풀에 빠르게 반납하므로 누수·
+    오염 위험이 없다. 예외 발생 시 호출자가 잡아 'error' 로 환원.
     """
     settings = get_settings()
     if settings.use_db_mock:
         return True
-    session_maker = get_sessionmaker()
-    if session_maker is None:
+    engine = get_engine()
+    if engine is None:
         return False
-    async with session_maker() as session:
-        await session.execute(text("SELECT 1"))
+    async with engine.connect() as conn:
+        await conn.execute(text("SELECT 1"))
     return True
