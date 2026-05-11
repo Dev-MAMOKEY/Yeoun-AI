@@ -67,28 +67,90 @@ class GemmaLLM:
 
     # --- 라이프사이클 -------------------------------------------------------
     async def load(self) -> None:
-        """가중치를 GPU 에 적재. 더미 모드면 즉시 'loaded' 로 표시."""
+        """가중치를 GPU 에 적재.
+
+        AWQ INT4 우선 시도 → 실패 시(Blackwell 등에서 AWQ 커널 미지원) BF16 폴백.
+        둘 다 실패하면 `error` 상태로 예외 raise. 더미 모드는 즉시 `loaded`.
+        """
         if not self._gpu_enabled:
             logger.info("GPU_ENABLED=false → GemmaLLM 더미 모드")
             self._status = "loaded"
             return
 
-        # 실 GPU 로드 — AWQ 우선, 실패 시 BF16 폴백.
-        # 실제 transformers 호출은 다음 커밋에서 채운다.
-        raise NotImplementedError(
-            "GPU 실 로드 분기는 다음 커밋(AWQ + BF16 폴백) 에서 구현."
+        self._status = "loading"
+
+        if self._awq_path:
+            try:
+                await asyncio.to_thread(self._load_variant, "awq", self._awq_path)
+                self._loaded_variant = "awq"
+                self._status = "loaded"
+                return
+            except Exception as exc:  # noqa: BLE001 — 어떤 실패든 BF16 폴백 시도
+                logger.warning(
+                    "AWQ 로드 실패 (Blackwell 커널 미지원 가능) — BF16 폴백 시도: %s",
+                    exc,
+                )
+
+        if self._bf16_path:
+            try:
+                await asyncio.to_thread(self._load_variant, "bf16", self._bf16_path)
+                self._loaded_variant = "bf16"
+                self._status = "loaded"
+                return
+            except Exception:
+                logger.exception("BF16 로드도 실패")
+                self._status = "error"
+                raise
+
+        self._status = "error"
+        raise RuntimeError(
+            "LLM 가중치 경로가 모두 비어 있습니다. LLM_AWQ_PATH 또는 LLM_BF16_PATH 중 "
+            "최소 하나를 설정하거나 GPU_ENABLED=false 로 더미 모드를 사용하십시오."
         )
+
+    def _load_variant(self, variant: Literal["awq", "bf16"], path: str) -> None:
+        """단일 변형 가중치를 동기 로드. `asyncio.to_thread` 안에서 호출된다."""
+        # transformers >= 4.50 의 멀티모달 클래스. 일부 버전엔 이 이름이 없어
+        # AutoModelForCausalLM 으로 폴백 — Gemma 4 model card 의 멀티모달 예시는
+        # AutoModelForMultimodalLM 을 쓰지만 가용성이 환경마다 다르다.
+        try:
+            from transformers import AutoModelForMultimodalLM as _AutoModel  # type: ignore[attr-defined]
+        except ImportError:
+            from transformers import AutoModelForCausalLM as _AutoModel  # type: ignore[assignment]
+        from transformers import AutoProcessor
+
+        logger.info("Gemma %s 로드 시작: %s", variant.upper(), path)
+        self._processor = AutoProcessor.from_pretrained(path)
+
+        load_kwargs: dict[str, object] = {"device_map": "auto"}
+        if variant == "awq":
+            # AWQ 양자화 가중치는 dtype 을 그대로 따른다 ("auto").
+            load_kwargs["dtype"] = "auto"
+        else:
+            import torch
+
+            load_kwargs["dtype"] = torch.bfloat16
+
+        self._model = _AutoModel.from_pretrained(path, **load_kwargs)
+        logger.info("Gemma %s 로드 완료", variant.upper())
 
     async def unload(self) -> None:
         """모델 자원을 해제. 더미 모드면 no-op."""
         if not self._gpu_enabled:
             self._status = "not_loaded"
             return
-        # GPU 해제는 후속 커밋에서.
-        self._status = "not_loaded"
         self._model = None
         self._processor = None
         self._loaded_variant = None
+        self._status = "not_loaded"
+        # GPU 메모리 회수 — torch 가 import 가능할 때만.
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except ImportError:
+            pass
 
     # --- 상태 --------------------------------------------------------------
     @property
