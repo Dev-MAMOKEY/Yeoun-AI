@@ -15,7 +15,6 @@ from .config import Settings, get_settings
 
 bearer_scheme = HTTPBearer(
     auto_error=False,
-    bearerFormat="opaque",
     description="`INTERNAL_TOKEN` 환경변수로 Spring Boot와 공유하는 내부 서비스 토큰.",
 )
 
@@ -34,7 +33,11 @@ async def require_internal_token(
             },
             headers={"WWW-Authenticate": "Bearer"},
         )
-    if not secrets.compare_digest(credentials.credentials, settings.internal_token):
+    # Compare as bytes so non-ASCII tokens never crash `compare_digest`.
+    if not secrets.compare_digest(
+        credentials.credentials.encode("utf-8"),
+        settings.internal_token.encode("utf-8"),
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
