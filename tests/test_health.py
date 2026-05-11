@@ -1,4 +1,4 @@
-"""Smoke tests for `GET /internal/health`."""
+"""`GET /internal/health` 스모크 테스트."""
 
 from tests.conftest import TEST_TOKEN
 

@@ -1,8 +1,8 @@
-"""`GET /internal/health` — liveness / readiness signal.
+"""`GET /internal/health` — 라이브니스 / 레디니스 신호.
 
-Fields that depend on subsystems not yet built (model registry, DB
-repository, session store) report safe placeholders. They will switch
-to live values as issues #4, #6, #7, #8 land.
+아직 구현되지 않은 서브시스템(모델 레지스트리, DB 리포지토리, 세션 스토어)
+관련 필드는 안전한 placeholder를 반환한다. 이슈 #4, #6, #7, #8이 머지되면
+실제 값으로 전환된다.
 """
 
 import time
@@ -60,7 +60,7 @@ class HealthData(BaseModel):
     summary="서비스 상태 확인",
     description=(
         "모델 로드 상태·활성 세션 수·GPU 활성 여부·DB 연결 상태를 반환합니다.\n\n"
-        "이 엔드포인트는 컨테이너 HEALTHCHECK 및 운영 대시보드에서 사용됩니다.\n"
+        "이 엔드포인트는 컨테이너 HEALTHCHECK 와 운영 대시보드에서 사용됩니다.\n"
         "응답은 명세서 공통 규칙대로 `{ success, data, error }` 봉투에 감싸여 반환됩니다."
     ),
     dependencies=[Depends(require_internal_token)],
@@ -74,8 +74,8 @@ async def health(
 ) -> Envelope[HealthData]:
     started_at: float | None = getattr(request.app.state, "started_at", None)
     if started_at is None:
-        # Lifespan never set the start time — surface as `degraded` instead
-        # of silently masking the failure with a fresh timestamp.
+        # lifespan이 시작 시각을 설정하지 못한 상태 — `degraded`로 노출해
+        # 새 timestamp로 실패를 가리지 않게 한다.
         status_value: Literal["ok", "degraded", "starting"] = "degraded"
         uptime = 0.0
     else:

@@ -1,9 +1,9 @@
-"""FastAPI application entry point.
+"""FastAPI 애플리케이션 진입점.
 
-Composes the Yeoun Persona Engine service:
-- lifespan: records start time, configures stdlib logging
-- routers: includes everything mounted under `/internal/*`
-- exception handlers: wraps every error in the standard envelope
+Yeoun Persona Engine 서비스를 조립한다:
+- lifespan: 시작 시각 기록, stdlib 로깅 설정
+- routers: `/internal/*` 아래에 마운트된 라우터들을 등록
+- exception handlers: 모든 에러를 표준 봉투로 감싸 반환
 """
 
 import logging
@@ -25,23 +25,22 @@ logger = logging.getLogger("yeoun")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Wire up cross-cutting state at process boot.
+    """프로세스 부팅 시 공유 상태를 초기화.
 
-    Model loaders, DB engines, and the session store hook in here as
-    later issues land. For now we only record the start time and
-    configure stdlib logging.
+    후속 이슈에서 모델 로더, DB 엔진, 세션 스토어가 같은 자리에 연결된다.
+    지금은 시작 시각 기록과 stdlib 로깅 설정만 수행.
     """
     settings = get_settings()
-    # `basicConfig` is a no-op when handlers already exist (e.g. pytest's
-    # `caplog` or operator-configured logging), so we don't pass `force=True`
-    # and avoid resetting handlers on every lifespan start.
+    # `basicConfig`는 핸들러가 이미 있으면 no-op이라 (예: pytest `caplog`,
+    # 운영자 사전 설정) `force=True`를 두지 않아 매번 lifespan 시작 시 핸들러가
+    # 리셋되지 않게 한다.
     logging.basicConfig(
         level=settings.log_level.upper(),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
     app.state.started_at = time.time()
     logger.info(
-        "Yeoun Persona Engine starting (version=%s, gpu_enabled=%s, db_mock=%s)",
+        "Yeoun Persona Engine 시작 (version=%s, gpu_enabled=%s, db_mock=%s)",
         __version__,
         settings.gpu_enabled,
         settings.use_db_mock,
@@ -49,7 +48,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        logger.info("Yeoun Persona Engine shutting down")
+        logger.info("Yeoun Persona Engine 종료 중")
 
 
 _DESCRIPTION = """
@@ -89,6 +88,7 @@ app = FastAPI(
 )
 
 
+# HTTP 상태 코드 → Envelope 에러 코드 매핑 (detail 이 dict 형식이 아닐 때 사용).
 _STATUS_CODE_TO_ERROR_CODE: dict[int, str] = {
     400: "BAD_REQUEST",
     401: "UNAUTHORIZED",
@@ -131,7 +131,7 @@ async def _validation_exception_handler(
 @app.exception_handler(Exception)
 async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception(
-        "Unhandled exception while processing %s %s",
+        "처리되지 않은 예외 발생: %s %s",
         request.method,
         request.url.path,
     )
