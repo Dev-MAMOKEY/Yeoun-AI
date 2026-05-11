@@ -100,9 +100,16 @@ class GemmaLLM:
                 self._loaded_variant = "awq"
                 self._status = "loaded"
                 return
-            except Exception as exc:  # noqa: BLE001 — 어떤 실패든 BF16 폴백 시도
+            except (FileNotFoundError, PermissionError, IsADirectoryError, NotADirectoryError, OSError):
+                # 가중치 경로/디스크 같은 환경 오류는 BF16 으로 가도 동일하게 실패한다.
+                # silently 폴백해 운영자가 원인을 헷갈리지 않도록 즉시 재raise 한다.
+                self._status = "error"
+                logger.exception("AWQ 로드 환경 오류 — BF16 폴백 안 함")
+                raise
+            except Exception as exc:  # noqa: BLE001 — 커널/포맷 추정 케이스만 폴백
+                # AutoAWQ 커널 미지원(Blackwell), AWQ config 파싱 오류 등 추정.
                 logger.warning(
-                    "AWQ 로드 실패 (Blackwell 커널 미지원 가능) — BF16 폴백 시도: %s",
+                    "AWQ 로드 실패 (커널 미지원 또는 포맷 문제 추정) — BF16 폴백 시도: %s",
                     exc,
                 )
 
