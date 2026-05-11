@@ -4,6 +4,8 @@
 함께 검증한다.
 """
 
+import dataclasses
+
 import pytest
 
 from app.safety.input_guard import CrisisResult, check_crisis
@@ -17,9 +19,14 @@ from app.safety.output_guard import FilteredResponse, filter_response
         "죽고 싶어",  # 이슈 명세 케이스
         "죽고싶다",
         "그냥 죽어버리고 싶어요",
+        "이제 그만 죽을래",
         "자살하고 싶다는 생각이 들어",
         "내가 사라지고 싶다",
         "사는 게 살 가치가 없어 보여",
+        "살 이유가 없어",  # '살 이유' 단축 키워드로 조사 우회 회피
+        "이제 목숨을 끊고 싶다",
+        "생을 마감하고 싶어",
+        "극단적 선택을 생각해",
     ],
 )
 def test_check_crisis_matches_korean_variants(text: str):
@@ -48,7 +55,7 @@ def test_check_crisis_passes_normal_text(text: str):
 def test_check_crisis_result_is_immutable():
     result = check_crisis("괜찮은 텍스트")
     assert isinstance(result, CrisisResult)
-    with pytest.raises(Exception):  # frozen dataclass → FrozenInstanceError
+    with pytest.raises(dataclasses.FrozenInstanceError):
         result.matched = True  # type: ignore[misc]
 
 
@@ -77,6 +84,9 @@ def test_filter_response_blocks_forbidden_comparisons(text: str):
         "오늘 하루 어떻게 보냈어?",
         "엄마는 항상 너를 자랑스러워하셨어",
         "그때 그 노래 기억나니?",
+        # 일반 비교 표현은 형제·배우자 어휘가 없으면 통과해야 한다 (false positive 회피).
+        "어제보다 더 사랑해",
+        "지난번보다 더 좋아 보이는데",
         "",
     ],
 )
@@ -91,7 +101,7 @@ def test_filter_response_passes_normal_text(text: str):
 def test_filter_response_result_is_immutable():
     result = filter_response("정상 응답")
     assert isinstance(result, FilteredResponse)
-    with pytest.raises(Exception):  # frozen dataclass → FrozenInstanceError
+    with pytest.raises(dataclasses.FrozenInstanceError):
         result.matched = True  # type: ignore[misc]
 
 
