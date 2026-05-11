@@ -43,9 +43,14 @@ class Envelope(BaseModel, Generic[T]):
 
 def ok(data: T) -> Envelope[T]:
     """Wrap a success payload in the standard envelope."""
-    return Envelope[T](success=True, data=data, error=None)
+    # Skip subscripting with the TypeVar at runtime — `T` here is the TypeVar
+    # itself, not the concrete type, so `Envelope[T](...)` would parameterise
+    # the model with an unresolved TypeVar and Pydantic would fall back to
+    # treating `data` as `Any`. The bare constructor keeps the runtime schema
+    # correct; the annotated return type still informs callers.
+    return Envelope(success=True, data=data, error=None)
 
 
 def fail(code: str, message: str) -> Envelope[None]:
     """Wrap an error in the standard envelope."""
-    return Envelope[None](success=False, data=None, error=ErrorBody(code=code, message=message))
+    return Envelope(success=False, data=None, error=ErrorBody(code=code, message=message))
