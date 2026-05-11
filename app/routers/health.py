@@ -72,12 +72,20 @@ async def health(
     request: Request,
     settings: Settings = Depends(get_settings),
 ) -> Envelope[HealthData]:
-    started_at = getattr(request.app.state, "started_at", time.time())
+    started_at: float | None = getattr(request.app.state, "started_at", None)
+    if started_at is None:
+        # Lifespan never set the start time — surface as `degraded` instead
+        # of silently masking the failure with a fresh timestamp.
+        status_value: Literal["ok", "degraded", "starting"] = "degraded"
+        uptime = 0.0
+    else:
+        status_value = "starting"
+        uptime = max(0.0, time.time() - started_at)
     return ok(
         HealthData(
-            status="starting",
+            status=status_value,
             version=__version__,
-            uptime_seconds=max(0.0, time.time() - started_at),
+            uptime_seconds=uptime,
             models=ModelStatus(),
             sessions=0,
             gpu_enabled=settings.gpu_enabled,
