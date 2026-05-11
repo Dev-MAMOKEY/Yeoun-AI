@@ -1,0 +1,37 @@
+# ---------------------------------------------------------------------------
+# Yeoun Persona Engine — local / on-prem deployment.
+#
+# Requires:
+#   - Docker Engine 24+
+#   - nvidia-container-toolkit configured on the host
+#   - Blackwell GPU driver (570.x or newer) on the host
+# ---------------------------------------------------------------------------
+services:
+  yeoun-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: yeoun-engine:latest
+    container_name: yeoun-engine
+    env_file:
+      - .env
+    ports:
+      # Bind to localhost only — Spring Boot reaches us through WireGuard.
+      - "127.0.0.1:8000:8000"
+    volumes:
+      # Model weights (~15GB). Populated by scripts/download_models.py (#15).
+      - yeoun-models:/models
+      # Persistent persona assets (photos, voice, voice_ref, idle clips).
+      - yeoun-persona:/var/persona
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  yeoun-models:
+  yeoun-persona:
