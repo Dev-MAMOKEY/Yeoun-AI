@@ -1,0 +1,46 @@
+# Git
+.git/
+.github/
+.gitignore
+.gitattributes
+
+# Python
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Environment (never bake secrets into image)
+.env
+.env.local
+.env.*.local
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Tests are not shipped in the production image
+tests/
+
+# Large project assets — provided via docker volumes
+models/
+var/
+vendor/
+
+# Logs
+*.log
+logs/
+
+# Build & misc
+.dockerignore
+Dockerfile
+docker-compose.yml
