@@ -45,5 +45,9 @@ def test_health_returns_envelope_on_success(client):
     assert data["db"] == "ok"
     assert data["sessions"] == 0
     assert set(data["models"].keys()) == {"llm", "tts", "ditto"}
-    assert all(v == "not_loaded" for v in data["models"].values())
+    # GPU_ENABLED=false 모드에서 LLM 로더는 더미 모드로 즉시 'loaded' 표시.
+    # TTS·Ditto 는 이슈 #7·#8 머지 전이라 placeholder 'not_loaded' 그대로.
+    assert data["models"]["llm"] == "loaded"
+    assert data["models"]["tts"] == "not_loaded"
+    assert data["models"]["ditto"] == "not_loaded"
     assert data["uptime_seconds"] >= 0
