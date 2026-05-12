@@ -81,8 +81,10 @@ class OmniVoiceTTS:
         if not self._gpu_enabled:
             self._status = "not_loaded"
             return
-        self._model = None
+        # 상태 전이를 모델 해제보다 먼저 — 호출 사이에 await 가 끼어들어도 외부
+        # observer 가 `loaded` 인데 `_model is None` 인 중간 상태를 보지 못하게 한다.
         self._status = "not_loaded"
+        self._model = None
         try:
             import torch
 
