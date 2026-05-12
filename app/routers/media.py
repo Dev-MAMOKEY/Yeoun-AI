@@ -1,4 +1,4 @@
-"""미디어 스트리밍 라우터 (이슈 #11).
+"""미디어 스트리밍 라우터.
 
 엔드포인트:
 - GET `/internal/personas/{id}/idle-clips/{idx}` — `idle/{idx}.mp4` 스트리밍

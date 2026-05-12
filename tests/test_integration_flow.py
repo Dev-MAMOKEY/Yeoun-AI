@@ -1,4 +1,4 @@
-"""mock 기반 핵심 흐름 통합 E2E (이슈 #13).
+"""mock 기반 핵심 흐름 통합 E2E.
 
 GPU_ENABLED=false + USE_DB_MOCK=true 에서 명세서 흐름 A(페르소나 생성) → 세션
 start/end → 영구 삭제까지 라우터 시퀀스로 검증한다. 개별 단위 테스트가 각

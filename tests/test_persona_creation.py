@@ -1,4 +1,4 @@
-"""페르소나 생성 백그라운드 파이프라인 (이슈 #9) 더미 모드 스모크 테스트.
+"""페르소나 생성 백그라운드 파이프라인 더미 모드 스모크 테스트.
 
 GPU_ENABLED=false + USE_DB_MOCK=true 에서 `process_persona` 가 voice/photo 자원을
 받아 ref_text·ref_audio·idle 클립을 생성하고 status='ready' 까지 도달하는지,

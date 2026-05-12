@@ -1,4 +1,4 @@
-"""대화 메시지 한 건의 SSE 흐름 (이슈 #10, 명세서 흐름 B).
+"""대화 메시지 한 건의 SSE 흐름 (명세서 흐름 B).
 
 `process_message` 가 audio → text 전사 → 위기 검증 → Gemma 응답 스트림 → 출력
 필터 → TTS+Ditto 합성 → media_ready 순서로 SSE 이벤트 dict 를 yield 한다.
@@ -111,7 +111,7 @@ async def process_message(
 
     full_text = "".join(full_text_parts).strip()
 
-    # 4. 출력 안전 필터 — 금지 주제 키워드 매칭 시 안전 fallback 으로 대체 (이슈 #5).
+    # 4. 출력 안전 필터 — 금지 주제 키워드 매칭 시 안전 fallback 으로 대체.
     filtered = filter_response(full_text)
     if filtered.matched:
         logger.info(
@@ -186,7 +186,7 @@ async def process_message(
         }
         return
 
-    # PERSONA_DIR 기준 상대 경로 — 내부 절대경로 노출 차단 (#9 의 IdleClipMeta.path 와 동일 패턴).
+    # PERSONA_DIR 기준 상대 경로 — 내부 절대경로 노출 차단 (IdleClipMeta.path 와 동일 패턴).
     relative_mp4 = f"{session.persona_id}/speak/{session.session_id}/{message_id}.mp4"
     yield {
         "event": "media_ready",

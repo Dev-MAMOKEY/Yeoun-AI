@@ -8,7 +8,7 @@
 - **TTS**: `k2-fsa/OmniVoice` (zero-shot voice cloning, 상주)
 - **Talking Head**: `antgroup/ditto-talkinghead` (PyTorch 백엔드, subprocess 온디맨드)
 
-Blackwell sm_120 호환을 위해 vendor 가 빌드한 TRT 8.6.1 엔진 대신 PyTorch 백엔드 사용. TRT 재빌드는 이슈 #15.
+Blackwell sm_120 호환을 위해 vendor 가 빌드한 TRT 8.6.1 엔진 대신 PyTorch 백엔드 사용. TRT 재빌드는 별도 환경.
 
 ## 요구사항
 
@@ -135,7 +135,7 @@ pytest --cov=app --cov-report=term-missing
 - 라우터 통합: 헬스 (`test_health.py`), 페르소나 생성·삭제 (`test_persona_creation.py`·`test_persona_deletion.py`), 세션 (`test_sessions_flow.py`), 미디어 Range (`test_media_range.py`)
 - E2E mock 흐름: `test_integration_flow.py` — 페르소나 생성 → 세션 start/end → 삭제 한 시퀀스
 
-실 GPU 검증은 별도(이슈 #15 가이드).
+실 GPU 검증은 별도(가이드).
 
 ## 환경 변수
 

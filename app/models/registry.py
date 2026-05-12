@@ -1,9 +1,9 @@
 """ModelRegistry — GPU 모델 자원 매니저.
 
 단일 uvicorn 워커 전제로 LLM·TTS·Ditto 모델 인스턴스를 한 곳에서 보유한다.
-- Gemma LLM: 부팅 시 로드, 상주 (이슈 #6).
-- OmniVoice TTS: #7 에서 등록 (작아서 상주 가능).
-- Ditto Talking Head: #8 에서 등록 (온디맨드 로드/언로드).
+- Gemma LLM: 부팅 시 로드, 상주.
+- OmniVoice TTS: 부팅 시 로드, 상주 (작아서 상주 가능).
+- Ditto Talking Head: 매 렌더 subprocess (온디맨드 로드/언로드).
 
 `gpu_semaphore` 로 동시 GPU 진입을 1건으로 직렬화한다 — LLM/TTS/Ditto 가 같은
 GPU 를 공유해 추론 사이 메모리 충돌을 방지하기 위함. 추후 LLM 과 Ditto 처럼
@@ -40,7 +40,7 @@ class ModelRegistry:
         # 통합하면 SSE 토큰 스트리밍(Gemma) 도중 Ditto 렌더가 차단되어 응답 지연.
         # 동시 점유 시 VRAM 합계는 LLM(BF16) ~8GB + TTS ~2GB + Ditto subprocess
         # ~2.2GB ≈ 12GB 로 24GB 안에서 안전 마진 확보. 추후 KV 캐시 증가나 동시 세션
-        # 폭증으로 OOM 압력이 보이면 통합 또는 #15 단계에서 메모리 예산 재산정.
+        # 폭증으로 OOM 압력이 보이면 통합 또는 메모리 예산 재산정.
         self._ditto_semaphore = asyncio.Semaphore(GPU_CONCURRENCY)
 
     async def start(self) -> None:

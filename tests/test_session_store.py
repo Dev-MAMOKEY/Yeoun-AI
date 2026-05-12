@@ -1,7 +1,7 @@
 """SessionStore 스모크 테스트.
 
-이슈 #4 「단위 테스트 자리」 — TTL sweeper·CRUD 핵심만 검증. 본격 단위 테스트
-는 이슈 #13 에서 확장한다.
+「단위 테스트 자리」 — TTL sweeper·CRUD 핵심만 검증. 본격 단위 테스트
+는 확장한다.
 """
 
 import asyncio

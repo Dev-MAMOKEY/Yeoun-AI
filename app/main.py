@@ -29,11 +29,7 @@ logger = logging.getLogger("yeoun")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """프로세스 부팅 시 공유 상태를 초기화.
-
-    후속 이슈에서 모델 로더, DB 엔진, 세션 스토어가 같은 자리에 연결된다.
-    지금은 시작 시각 기록과 stdlib 로깅 설정만 수행.
-    """
+    """프로세스 부팅 시 공유 상태를 초기화 — 로깅·DB ping·세션 스토어·페르소나 진행률 스토어·ModelRegistry."""
     settings = get_settings()
     # `basicConfig`는 핸들러가 이미 있으면 no-op이라 (예: pytest `caplog`,
     # 운영자 사전 설정) `force=True`를 두지 않아 매번 lifespan 시작 시 핸들러가
@@ -111,7 +107,7 @@ WireGuard 내부망에서 Spring Boot가 프록시합니다.
 `TOO_MANY_REQUESTS`·`RANGE_NOT_SATISFIABLE`·`SERVICE_UNAVAILABLE`·`DELETE_FAILED`·
 `INTERNAL_ERROR`.
 
-## 흐름 A — 페르소나 생성 (이슈 #9)
+## 흐름 A — 페르소나 생성
 업로드 완료 후 백그라운드 파이프라인이 voice 전사·ref 자원 보관·idle 클립 2개 렌더 수행.
 ```
 POST /internal/personas/{id}/process            → 202 (BackgroundTask)
@@ -121,7 +117,7 @@ GET  /internal/personas/{id}/idle-clips/{idx}   → mp4 스트리밍 (Range 지�
 DELETE /internal/personas/{id}                  → DB+FS 정리 (processing 중이면 409)
 ```
 
-## 흐름 B — 대화 세션 (이슈 #10·#11)
+## 흐름 B — 대화 세션
 사용자 음성을 SSE 로 처리해 토큰·텍스트·미디어 이벤트를 순차 송출.
 ```
 POST /internal/sessions/start                                    → session_id

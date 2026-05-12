@@ -1,4 +1,4 @@
-"""파일시스템 안전 경로 + HTTP Range 처리 (이슈 #11).
+"""파일시스템 안전 경로 + HTTP Range 처리.
 
 `safe_resolve` 는 외부에서 들어온 부분 경로가 지정 루트(`PERSONA_DIR`) 밖으로
 나가지 못하도록 강제하고, `parse_range` / `iter_file_range` 는 HTTP Range
