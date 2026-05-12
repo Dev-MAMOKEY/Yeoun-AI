@@ -187,7 +187,9 @@ async def post_message(
             async with _message_counter_lock:
                 _active_messages -= 1
 
-    return EventSourceResponse(event_generator())
+    # ping=15: TTS+Ditto 합성으로 SSE 가 15s+ hang 될 수 있어 keep-alive 코멘트
+    # 프레임을 15s 마다 송출 — 클라이언트·역방향 프록시 timeout 차단 방지.
+    return EventSourceResponse(event_generator(), ping=15)
 
 
 @router.post(
