@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import shutil
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -66,6 +68,19 @@ def parse_range(header: str | None, file_size: int) -> tuple[int, int] | None:
         raise RangeNotSatisfiable(f"Range 가 파일 크기 밖: start={start}, end={end}, size={file_size}")
     end = min(end, file_size - 1)
     return start, end
+
+
+async def safe_rmtree(root: str | Path, *parts: str | Path) -> bool:
+    """`root` 하위의 부분 경로를 트리째 삭제. 루트 밖 인자는 `PermissionError`.
+
+    반환: 실제로 삭제했으면 True, 대상이 없으면 False. 삭제 실패(IO error) 는
+    `OSError` raise — 호출자(라우터)가 DB 변경 보류 + 500 환원.
+    """
+    target = safe_resolve(root, *parts)
+    if not target.exists():
+        return False
+    await asyncio.to_thread(shutil.rmtree, target)
+    return True
 
 
 async def iter_file_range(
