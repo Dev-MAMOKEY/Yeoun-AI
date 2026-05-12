@@ -7,11 +7,12 @@
 - DELETE `/internal/personas/{id}`
 """
 
+import asyncio
 import logging
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile
 from fastapi import status as http_status
 
 from ..auth import require_internal_token
@@ -25,8 +26,21 @@ from ..schemas.persona import (
     IdleClipsData,
     PersonaStatusData,
     ProcessingStep,
+    UploadResult,
 )
-from ..storage.filesystem import safe_rmtree
+from ..storage.filesystem import safe_resolve, safe_rmtree
+
+# 허용 content-type — 흔한 모바일/웹 업로드 형식만. inference.py / Gemma audio-in
+# 이 ffmpeg 로 자동 디코딩하므로 codec 별로 분기하지 않는다.
+_PHOTO_CONTENT_TYPES = frozenset({"image/jpeg", "image/jpg", "image/png", "image/webp"})
+_VOICE_CONTENT_TYPES = frozenset(
+    {
+        "audio/wav", "audio/x-wav", "audio/wave",
+        "audio/mpeg", "audio/mp3",
+        "audio/mp4", "audio/m4a", "audio/x-m4a",
+        "audio/webm", "audio/ogg",
+    }
+)
 
 logger = logging.getLogger("yeoun")
 
@@ -250,3 +264,154 @@ async def delete_persona(
     # 2) DB 삭제 — mock 은 dict pop, 실 DB 는 CASCADE 트랜잭션.
     await repository.delete_persona_tx(persona_id)
     return ok(None)
+
+
+async def _ensure_writable_persona(persona_id: UUID) -> None:
+    """업로드 라우트 공용 가드 — 페르소나 존재 + processing 차단."""
+    record = await repository.get_persona(persona_id)
+    if record is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail={"code": "NOT_FOUND", "message": f"페르소나를 찾을 수 없습니다: {persona_id}"},
+        )
+    if record.status == "processing":
+        raise HTTPException(
+            status_code=http_status.HTTP_409_CONFLICT,
+            detail={
+                "code": "CONFLICT",
+                "message": "처리 중 페르소나에는 업로드할 수 없습니다 (status='processing').",
+            },
+        )
+
+
+async def _save_upload(
+    *,
+    persona_id: UUID,
+    file: UploadFile,
+    subdir: str,
+    allowed_content_types: frozenset[str],
+    settings: Settings,
+) -> tuple[Path, int]:
+    """업로드 파일을 검증 후 PERSONA_DIR 하위에 atomic 저장하고 경로·크기 반환.
+
+    검증 순서: content-type → 크기 cap(스트리밍) → 파일명 sanitize → safe_resolve 가드.
+    `.tmp` 파일로 먼저 쓰고 `replace` 로 마감해 중단 시 부분 파일이 남지 않게 한다.
+    """
+    if file.content_type not in allowed_content_types:
+        raise HTTPException(
+            status_code=http_status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail={
+                "code": "UNSUPPORTED_MEDIA_TYPE",
+                "message": f"지원하지 않는 content-type: {file.content_type!r}",
+            },
+        )
+
+    # 스트리밍 read — 한도 초과 즉시 413. 단순 file.read() 는 전체를 메모리에 적재하므로
+    # 대용량 공격 방지를 위해 chunk 단위로 누적·검사.
+    chunk_size = 1024 * 1024
+    buffer = bytearray()
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        buffer.extend(chunk)
+        if len(buffer) > settings.max_upload_bytes:
+            raise HTTPException(
+                status_code=http_status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail={
+                    "code": "PAYLOAD_TOO_LARGE",
+                    "message": f"업로드 크기 한도 {settings.max_upload_bytes} 바이트를 초과했습니다.",
+                },
+            )
+    await file.close()
+
+    # 파일명 sanitize — Path(...).name 으로 path-traversal 차단, 빈 이름은 uuid 로 대체.
+    raw_name = Path(file.filename or "").name
+    filename = raw_name or f"upload-{uuid4().hex}"
+
+    try:
+        target = safe_resolve(settings.persona_dir, str(persona_id), subdir, filename)
+    except PermissionError:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail={"code": "BAD_REQUEST", "message": "허용되지 않는 파일명입니다."},
+        )
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = Path(str(target) + ".tmp")
+    await asyncio.to_thread(tmp.write_bytes, bytes(buffer))
+    tmp.replace(target)
+    logger.info("업로드 저장: persona=%s, path=%s, size=%d", persona_id, target, len(buffer))
+    return target, len(buffer)
+
+
+@router.post(
+    "/{persona_id}/photo",
+    response_model=Envelope[UploadResult],
+    summary="페르소나 사진 업로드",
+    description=(
+        "사용자가 올린 사진을 `/var/persona/{id}/photo/{filename}` 으로 저장. "
+        "허용 content-type: `image/jpeg`, `image/png`, `image/webp`. 한 파일 최대 `max_upload_bytes` "
+        "(기본 50MB). 처리 중 페르소나에는 업로드 불가(409)."
+    ),
+    dependencies=[Depends(require_internal_token)],
+    responses={
+        200: {"description": "업로드 성공."},
+        400: {"description": "허용되지 않는 파일명 (`BAD_REQUEST`)."},
+        401: {"description": "토큰이 없거나 유효하지 않음 (`UNAUTHORIZED`)."},
+        404: {"description": "페르소나 없음 (`NOT_FOUND`)."},
+        409: {"description": "처리 중 페르소나 (`CONFLICT`)."},
+        413: {"description": "업로드 크기 한도 초과 (`PAYLOAD_TOO_LARGE`)."},
+        415: {"description": "지원하지 않는 content-type (`UNSUPPORTED_MEDIA_TYPE`)."},
+    },
+)
+async def upload_photo(
+    persona_id: UUID,
+    file: UploadFile = File(..., description="사진 파일 (jpeg/png/webp)."),
+    settings: Settings = Depends(get_settings),
+) -> Envelope[UploadResult]:
+    await _ensure_writable_persona(persona_id)
+    target, size = await _save_upload(
+        persona_id=persona_id,
+        file=file,
+        subdir="photo",
+        allowed_content_types=_PHOTO_CONTENT_TYPES,
+        settings=settings,
+    )
+    return ok(UploadResult(path=f"{persona_id}/photo/{target.name}", size_bytes=size))
+
+
+@router.post(
+    "/{persona_id}/voice",
+    response_model=Envelope[UploadResult],
+    summary="페르소나 음성 업로드",
+    description=(
+        "사용자가 올린 음성(reference voice) 을 `/var/persona/{id}/voice/{filename}` 으로 저장. "
+        "허용 content-type: `audio/wav`, `audio/mp3`, `audio/m4a`, `audio/webm`, `audio/ogg` 등. "
+        "한 파일 최대 `max_upload_bytes` (기본 50MB). 처리 중 페르소나에는 업로드 불가(409)."
+    ),
+    dependencies=[Depends(require_internal_token)],
+    responses={
+        200: {"description": "업로드 성공."},
+        400: {"description": "허용되지 않는 파일명 (`BAD_REQUEST`)."},
+        401: {"description": "토큰이 없거나 유효하지 않음 (`UNAUTHORIZED`)."},
+        404: {"description": "페르소나 없음 (`NOT_FOUND`)."},
+        409: {"description": "처리 중 페르소나 (`CONFLICT`)."},
+        413: {"description": "업로드 크기 한도 초과 (`PAYLOAD_TOO_LARGE`)."},
+        415: {"description": "지원하지 않는 content-type (`UNSUPPORTED_MEDIA_TYPE`)."},
+    },
+)
+async def upload_voice(
+    persona_id: UUID,
+    file: UploadFile = File(..., description="음성 파일 (wav/mp3/m4a/webm/ogg)."),
+    settings: Settings = Depends(get_settings),
+) -> Envelope[UploadResult]:
+    await _ensure_writable_persona(persona_id)
+    target, size = await _save_upload(
+        persona_id=persona_id,
+        file=file,
+        subdir="voice",
+        allowed_content_types=_VOICE_CONTENT_TYPES,
+        settings=settings,
+    )
+    return ok(UploadResult(path=f"{persona_id}/voice/{target.name}", size_bytes=size))
