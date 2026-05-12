@@ -53,13 +53,15 @@ async def process_message(
     # 2. 입력 안전 가드 — 위기 키워드 매칭 시 event:crisis 송출 후 종료.
     crisis = check_crisis(user_text)
     if crisis.matched:
-        logger.info("위기 키워드 감지: session=%s, keyword=%s", session.session_id, crisis.keyword)
+        logger.info(
+            "위기 키워드 감지: session=%s, keyword=%s", session.session_id, crisis.matched_keyword
+        )
         yield {
             "event": "crisis",
             "data": json.dumps(
                 {
                     "message_id": str(message_id),
-                    "keyword": crisis.keyword,
+                    "keyword": crisis.matched_keyword,
                     "guidance": "지금 많이 힘드신가요? 24시간 상담 전화 109 로 연락해 주세요.",
                 }
             ),
@@ -84,9 +86,17 @@ async def process_message(
 
     full_text = "".join(full_text_parts).strip()
 
-    # 4. 출력 안전 필터 — 금지 주제 키워드 마스킹 (이슈 #5).
+    # 4. 출력 안전 필터 — 금지 주제 키워드 매칭 시 안전 fallback 으로 대체 (이슈 #5).
     filtered = filter_response(full_text)
-    final_text = filtered.text
+    if filtered.matched:
+        logger.info(
+            "금지 주제 감지: session=%s, keyword=%s",
+            session.session_id,
+            filtered.matched_keyword,
+        )
+        final_text = "(이 주제는 답변드리기 어려워요. 다른 이야기를 나눌까요?)"
+    else:
+        final_text = filtered.text
 
     yield {
         "event": "text_done",
