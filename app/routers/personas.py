@@ -7,6 +7,7 @@
 - GET `/internal/personas/{id}/idle-clips` (#9 후속 커밋)
 """
 
+from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -18,7 +19,7 @@ from ..db import repository
 from ..models.registry import ModelRegistry
 from ..pipeline.persona_creation import PersonaProcessingStore, process_persona
 from ..schemas.common import Envelope, ok
-from ..schemas.persona import PersonaStatusData
+from ..schemas.persona import IdleClipMeta, IdleClipsData, PersonaStatusData
 
 router = APIRouter(prefix="/internal/personas", tags=["personas"])
 
@@ -103,3 +104,47 @@ async def get_status(
             error_reason=state.error_reason if state is not None else None,
         )
     )
+
+
+@router.get(
+    "/{persona_id}/idle-clips",
+    response_model=Envelope[IdleClipsData],
+    summary="페르소나 idle 클립 메타 조회",
+    description=(
+        "`status='ready'` 이후 호출. `/var/persona/{id}/idle/{n}.mp4` 의 메타(인덱스·경로·크기)를 반환. "
+        "실제 mp4 스트리밍은 이슈 #11 의 미디어 라우터가 담당."
+    ),
+    dependencies=[Depends(require_internal_token)],
+    responses={
+        200: {"description": "조회 성공 (status 가 ready 가 아니면 클립 목록이 비어 있을 수 있음)."},
+        401: {"description": "토큰이 없거나 유효하지 않음 (`UNAUTHORIZED`)."},
+        404: {"description": "페르소나 없음 (`NOT_FOUND`)."},
+    },
+)
+async def get_idle_clips(
+    persona_id: UUID,
+    settings: Settings = Depends(get_settings),
+) -> Envelope[IdleClipsData]:
+    record = await repository.get_persona(persona_id)
+    if record is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail={"code": "NOT_FOUND", "message": f"페르소나를 찾을 수 없습니다: {persona_id}"},
+        )
+
+    idle_dir = Path(settings.persona_dir) / str(persona_id) / "idle"
+    clips: list[IdleClipMeta] = []
+    if idle_dir.exists():
+        for p in sorted(idle_dir.glob("*.mp4")):
+            if not p.is_file():
+                continue
+            try:
+                # 0.mp4, 1.mp4 만 유효 인덱스로 채택.
+                idx = int(p.stem)
+            except ValueError:
+                continue
+            clips.append(
+                IdleClipMeta(index=idx, path=str(p), size_bytes=p.stat().st_size)
+            )
+
+    return ok(IdleClipsData(persona_id=persona_id, clips=clips))
