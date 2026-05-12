@@ -115,6 +115,25 @@ docker compose logs -f yeoun-engine   # "ModelRegistry 시작" 로그 확인
 
 이후 HF cache 는 named volume `yeoun-models` 에 영속화되어 컨테이너 재시작 시 재다운로드 안 함.
 
+### Spring Boot 호출 시퀀스 — 페르소나 생성
+
+```
+1. Spring  → DB:    INSERT INTO personas (status='created', ...)
+2. Spring  → DB:    INSERT INTO persona_interviews (10 rows, question_number 1..10)
+3. Spring  → AI:    POST /internal/personas/{id}/photo   (multipart, image/jpeg|png|webp, ≤50MB)
+4. Spring  → AI:    POST /internal/personas/{id}/voice   (multipart, audio/wav|mp3|m4a|webm|ogg, ≤50MB)
+5. Spring  → AI:    POST /internal/personas/{id}/process  → 202
+6. Spring loop  →   GET  /internal/personas/{id}/status  → status 'ready'/'failed' 까지 5초 폴링
+7. ready 시         GET  /internal/personas/{id}/idle-clips → 클립 메타
+```
+
+자원 저장 위치 (컨테이너 안 `/var/persona/{persona_id}/`):
+- `photo/{filename}` — 업로드된 사진. mtime 가장 새 파일이 채택됨
+- `voice/{filename}` — 업로드된 음성 (reference). mtime 가장 새 파일이 채택됨
+- `voice_ref/ref_text.txt` + `ref_audio.{ext}` — `/process` 가 자동 생성
+- `idle/0.mp4`·`idle/1.mp4` — `/process` 가 자동 렌더
+- `speak/{session_id}/{message_id}.{wav,mp4}` — 대화 세션이 자동 생성, 세션 종료 시 정리
+
 ## 테스트
 
 GPU 없는 개발 머신에서도 mock 기반 흐름이 모두 검증되도록 pytest 스위트 + 커버리지를 둔다.

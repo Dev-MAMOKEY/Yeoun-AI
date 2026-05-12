@@ -108,8 +108,10 @@ WireGuard 내부망에서 Spring Boot가 프록시합니다.
 `INTERNAL_ERROR`.
 
 ## 흐름 A — 페르소나 생성
-업로드 완료 후 백그라운드 파이프라인이 voice 전사·ref 자원 보관·idle 클립 2개 렌더 수행.
+사진·음성 업로드 후 백그라운드 파이프라인이 voice 전사·ref 자원 보관·idle 클립 2개 렌더 수행.
 ```
+POST /internal/personas/{id}/photo              → multipart 사진 업로드
+POST /internal/personas/{id}/voice              → multipart 음성 업로드
 POST /internal/personas/{id}/process            → 202 (BackgroundTask)
 GET  /internal/personas/{id}/status             → status·step·error_reason (폴링)
 GET  /internal/personas/{id}/idle-clips         → 2개 클립 메타 (PERSONA_DIR 기준 상대경로)

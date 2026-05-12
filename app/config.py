@@ -91,6 +91,15 @@ class Settings(BaseSettings):
         ),
     )
 
+    max_upload_bytes: int = Field(
+        50 * 1024 * 1024,
+        ge=1,
+        description=(
+            "페르소나 사진·음성 업로드 한 파일당 최대 크기(바이트). 기본 50MB. "
+            "초과 시 라우터가 413 Request Entity Too Large 반환."
+        ),
+    )
+
     log_level: str = Field(
         "INFO",
         description="로그 레벨: DEBUG | INFO | WARNING | ERROR.",
