@@ -105,12 +105,13 @@ class DittoTalkingHead:
         target = Path(output_path)
         target.parent.mkdir(parents=True, exist_ok=True)
 
+        if self._status != "loaded":
+            raise RuntimeError("DittoTalkingHead 가 로드되지 않았습니다.")
+
         if not self._gpu_enabled:
             await asyncio.to_thread(_write_dummy_mp4, target)
             return target
 
-        if self._status != "loaded":
-            raise RuntimeError("DittoTalkingHead 가 로드되지 않았습니다.")
         assert self._vendor_dir and self._data_root and self._cfg_pkl
 
         vendor = Path(self._vendor_dir).resolve()
