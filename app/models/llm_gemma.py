@@ -1,15 +1,12 @@
 """GemmaLLM — `google/gemma-4-E4B-it` 멀티모달 로더 + 추론.
 
-- 부팅 시 BF16 가중치를 GPU 에 적재한다. 양자화 분기(AWQ INT4) 는 AutoAWQ 가
-  archived 되며 vLLM 의 llm-compressor 로 흡수돼 본 코드 경로에서 제거됐다.
-  양자화 추론 복귀는 vLLM 전환 작업(별도 이슈) 에서 다룬다.
+- 부팅 시 BF16 가중치를 GPU 에 적재한다.
 - 음성 입력은 멀티모달 audio-in 으로 Gemma 가 직접 이해해 한국어 응답을 만든다.
 - 토큰은 transformers `TextIteratorStreamer` 를 별도 스레드에 띄워 async 큐로
   yield (단일 워커 + asyncio 단일 루프 전제).
 - `GPU_ENABLED=false` 모드는 모든 호출을 더미 텍스트/토큰 반환으로 단락 처리.
 
-이슈 #6 범위는 로더·전사·스트림 API 까지. 시스템 프롬프트 조립과 conversation
-파이프라인은 #10 에서 본 클래스를 호출한다.
+시스템 프롬프트 조립과 conversation 파이프라인은 #10 에서 본 클래스를 호출한다.
 """
 
 from __future__ import annotations
