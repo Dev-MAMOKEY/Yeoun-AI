@@ -65,12 +65,13 @@ async def lifespan(app: FastAPI):
     await registry.start()
 
     logger.info(
-        "Yeoun Persona Engine 시작 (version=%s, gpu_enabled=%s, db_mock=%s, llm=%s, tts=%s)",
+        "Yeoun Persona Engine 시작 (version=%s, gpu_enabled=%s, db_mock=%s, llm=%s, tts=%s, ditto=%s)",
         __version__,
         settings.gpu_enabled,
         settings.use_db_mock,
         registry.llm.status if registry.llm else "not_loaded",
         registry.tts.status if registry.tts else "not_loaded",
+        registry.ditto.status if registry.ditto else "not_loaded",
     )
     try:
         yield

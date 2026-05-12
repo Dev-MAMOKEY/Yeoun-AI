@@ -100,8 +100,10 @@ async def health(
     registry: ModelRegistry | None = getattr(request.app.state, "registry", None)
     llm_status = registry.llm.status if registry is not None and registry.llm is not None else "not_loaded"
     tts_status = registry.tts.status if registry is not None and registry.tts is not None else "not_loaded"
-    # Ditto 상태는 이슈 #8 머지 시 동일하게 registry 에서 읽어 채운다.
-    models = ModelStatus(llm=llm_status, tts=tts_status)
+    # Ditto 는 매 render subprocess 모델 — `loaded` 는 "경로 검증 통과, 호출 가능" 의 의미.
+    # 평시 GPU 메모리는 점유하지 않는다.
+    ditto_status = registry.ditto.status if registry is not None and registry.ditto is not None else "not_loaded"
+    models = ModelStatus(llm=llm_status, tts=tts_status, ditto=ditto_status)
 
     # status 도출:
     # - lifespan 미완료 → degraded

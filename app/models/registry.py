@@ -19,6 +19,7 @@ import logging
 
 from ..config import Settings
 from .llm_gemma import GemmaLLM
+from .talkinghead_ditto import DittoTalkingHead
 from .tts_omnivoice import OmniVoiceTTS
 
 logger = logging.getLogger("yeoun")
@@ -33,8 +34,14 @@ class ModelRegistry:
         self._settings = settings
         self.llm: GemmaLLM | None = None
         self.tts: OmniVoiceTTS | None = None
-        # Ditto 는 이슈 #8 에서 추가.
+        self.ditto: DittoTalkingHead | None = None
         self._gpu_semaphore = asyncio.Semaphore(GPU_CONCURRENCY)
+        # Ditto 는 매 호출 subprocess 라 Gemma/TTS 와 자원이 분리된다 — 별도 락 유지.
+        # 통합하면 SSE 토큰 스트리밍(Gemma) 도중 Ditto 렌더가 차단되어 응답 지연.
+        # 동시 점유 시 VRAM 합계는 LLM(BF16) ~8GB + TTS ~2GB + Ditto subprocess
+        # ~2.2GB ≈ 12GB 로 24GB 안에서 안전 마진 확보. 추후 KV 캐시 증가나 동시 세션
+        # 폭증으로 OOM 압력이 보이면 통합 또는 #15 단계에서 메모리 예산 재산정.
+        self._ditto_semaphore = asyncio.Semaphore(GPU_CONCURRENCY)
 
     async def start(self) -> None:
         """상주 모델을 부팅 시점에 로드."""
@@ -54,10 +61,23 @@ class ModelRegistry:
         await self.tts.load()
         logger.info("OmniVoice TTS 상태=%s", self.tts.status)
 
+        logger.info("ModelRegistry — DittoTalkingHead 경로 검증")
+        self.ditto = DittoTalkingHead(
+            vendor_dir=self._settings.ditto_vendor_dir,
+            data_root=self._settings.ditto_data_root,
+            cfg_pkl=self._settings.ditto_cfg_pkl,
+            gpu_enabled=self._settings.gpu_enabled,
+        )
+        await self.ditto.load()
+        logger.info("DittoTalkingHead 상태=%s", self.ditto.status)
+
     async def stop(self) -> None:
         """모든 모델 자원 정리."""
         logger.info("ModelRegistry 종료")
-        # TTS 먼저 내려 GPU 메모리부터 회수 (상주 작은 모델).
+        # Ditto·TTS 먼저 내려 GPU 메모리부터 회수.
+        if self.ditto is not None:
+            await self.ditto.unload()
+            self.ditto = None
         if self.tts is not None:
             await self.tts.unload()
             self.tts = None
@@ -69,6 +89,11 @@ class ModelRegistry:
     def gpu_semaphore(self) -> asyncio.Semaphore:
         """GPU 추론 진입 직렬화용 세마포어 — 호출자가 `async with` 로 보호."""
         return self._gpu_semaphore
+
+    @property
+    def ditto_semaphore(self) -> asyncio.Semaphore:
+        """Ditto 렌더 전용 세마포어 — subprocess 라 Gemma/TTS 와 자원 분리."""
+        return self._ditto_semaphore
 
     @property
     def gpu_concurrency(self) -> int:

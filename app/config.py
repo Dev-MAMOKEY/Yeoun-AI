@@ -67,6 +67,34 @@ class Settings(BaseSettings):
         ),
     )
 
+    # --- Ditto-TalkingHead 경로 (이슈 #8) ----------------------------------
+    # README 패턴 (https://huggingface.co/digital-avatar/ditto-talkinghead):
+    #   git clone github.com/antgroup/ditto-talkinghead → vendor_dir
+    #   git clone hf.co/digital-avatar/ditto-talkinghead vendor_dir/checkpoints → 가중치
+    # 추론은 `python <vendor_dir>/inference.py --data_root ... --cfg_pkl ... \
+    #         --audio_path ... --source_path ... --output_path ...` CLI 를 subprocess 로 호출.
+    ditto_vendor_dir: str | None = Field(
+        None,
+        description=(
+            "antgroup/ditto-talkinghead repo clone 위치. `inference.py` 가 들어 있는 디렉토리."
+        ),
+    )
+    ditto_data_root: str | None = Field(
+        None,
+        description=(
+            "TRT/PyTorch 모델 디렉토리. README 디폴트는 `<vendor>/checkpoints/ditto_trt_Ampere_Plus`. "
+            "Blackwell(sm_120) 등 Ampere_Plus 미지원 환경에선 `<vendor>/checkpoints/ditto_pytorch` "
+            "로 변경하거나 #15 의 ONNX→TRT 재변환 스크립트를 활용."
+        ),
+    )
+    ditto_cfg_pkl: str | None = Field(
+        None,
+        description=(
+            "Ditto cfg pickle 경로. TRT 백엔드는 `v0.4_hubert_cfg_trt.pkl`, "
+            "PyTorch 백엔드는 `v0.4_hubert_cfg_pytorch.pkl` 을 사용한다."
+        ),
+    )
+
     log_level: str = Field(
         "INFO",
         description="로그 레벨: DEBUG | INFO | WARNING | ERROR.",
