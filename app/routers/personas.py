@@ -19,7 +19,12 @@ from ..db import repository
 from ..models.registry import ModelRegistry
 from ..pipeline.persona_creation import PersonaProcessingStore, process_persona
 from ..schemas.common import Envelope, ok
-from ..schemas.persona import IdleClipMeta, IdleClipsData, PersonaStatusData
+from ..schemas.persona import (
+    IdleClipMeta,
+    IdleClipsData,
+    PersonaStatusData,
+    ProcessingStep,
+)
 
 router = APIRouter(prefix="/internal/personas", tags=["personas"])
 
@@ -38,6 +43,8 @@ router = APIRouter(prefix="/internal/personas", tags=["personas"])
     responses={
         202: {"description": "백그라운드 작업이 큐에 등록되었음."},
         401: {"description": "토큰이 없거나 유효하지 않음 (`UNAUTHORIZED`)."},
+        404: {"description": "페르소나 없음 (`NOT_FOUND`)."},
+        409: {"description": "이미 처리 중이거나 완료된 페르소나 (`CONFLICT`)."},
         503: {"description": "ModelRegistry 또는 PersonaProcessingStore 가 부팅 전 (`SERVICE_UNAVAILABLE`)."},
     },
 )
@@ -57,6 +64,32 @@ async def start_processing(
                 "message": "ModelRegistry 또는 PersonaProcessingStore 가 초기화되지 않았습니다.",
             },
         )
+
+    # 페르소나 존재 검증 — 없으면 404. 백그라운드로 넘긴 뒤 mock 이 silently
+    # return 되는 일을 막아 Spring 이 즉시 오류를 인지하게 한다.
+    record = await repository.get_persona(persona_id)
+    if record is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail={"code": "NOT_FOUND", "message": f"페르소나를 찾을 수 없습니다: {persona_id}"},
+        )
+
+    # 중복 호출 보호 — 진행 중 또는 ready 면 409. 같은 persona 두 작업 동시 실행
+    # 시 디렉토리 race 와 status 역행(`ready→processing→ready`) 차단.
+    state = store.get(persona_id)
+    in_progress = state is not None and state.step not in (
+        ProcessingStep.READY,
+        ProcessingStep.FAILED,
+    )
+    if in_progress or record.status in ("processing", "ready"):
+        raise HTTPException(
+            status_code=http_status.HTTP_409_CONFLICT,
+            detail={
+                "code": "CONFLICT",
+                "message": f"이미 처리 중이거나 완료된 페르소나입니다 (status={record.status}).",
+            },
+        )
+
     background_tasks.add_task(
         process_persona,
         persona_id,
