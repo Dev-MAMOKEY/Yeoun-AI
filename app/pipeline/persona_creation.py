@@ -132,8 +132,12 @@ async def _transcribe_voice(
     async with registry.gpu_semaphore:
         text = await registry.llm.transcribe(voice_path)
 
+    # atomic write — 부분 쓰기 후 죽으면 멱등 스킵이 깨져 GPU 전사를 재호출하게
+    # 되므로 임시 파일에 먼저 쓰고 rename 으로 마감한다.
     ref_text_path.parent.mkdir(parents=True, exist_ok=True)
-    ref_text_path.write_text(text, encoding="utf-8")
+    tmp_path = ref_text_path.with_suffix(ref_text_path.suffix + ".tmp")
+    tmp_path.write_text(text, encoding="utf-8")
+    tmp_path.replace(ref_text_path)
     logger.info("ref_text 저장: %s (%d 자)", ref_text_path, len(text))
     return text
 
