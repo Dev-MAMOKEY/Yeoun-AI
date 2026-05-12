@@ -28,6 +28,30 @@ from ..sessions.schemas import MessageRecord, SessionState
 
 logger = logging.getLogger("yeoun")
 
+# Gemma 4 컨텍스트 8K 토큰을 보수적으로 분할: 시스템 프롬프트·현재 audio·답변 여유분
+# 을 빼고 history 에 ~4K 자 (한국어 약 2K 토큰) 할당. 메시지 수도 너무 깊은 누적
+# 을 막기 위해 상한.
+_HISTORY_MAX_CHARS = 4000
+_HISTORY_MAX_MESSAGES = 20
+
+
+def _trim_history(history: list, *, max_chars: int = _HISTORY_MAX_CHARS, max_messages: int = _HISTORY_MAX_MESSAGES) -> list[dict]:
+    """세션 history 를 Gemma 컨텍스트 안전 범위로 잘라 dict 리스트로 반환.
+
+    최근 메시지부터 누적해 글자 수·메시지 수 두 상한 중 먼저 닿는 것까지 보존.
+    가장 오래된 메시지는 정책적으로 잘려 LLM 입력에서 빠진다.
+    """
+    kept: list[dict] = []
+    total_chars = 0
+    for msg in reversed(history):
+        msg_chars = len(msg.text)
+        if total_chars + msg_chars > max_chars or len(kept) >= max_messages:
+            break
+        kept.append({"role": msg.role, "text": msg.text})
+        total_chars += msg_chars
+    kept.reverse()
+    return kept
+
 
 async def process_message(
     session: SessionState,
@@ -69,7 +93,8 @@ async def process_message(
         return
 
     # 3. Gemma 응답 스트림 — audio-in 으로 직접 처리, 토큰을 누적하며 SSE 로 전달.
-    history_messages = [{"role": m.role, "text": m.text} for m in session.history]
+    # history 는 컨텍스트 안전 범위로 잘라 입력 — 8K 토큰 초과로 인한 잘림·OOM 차단.
+    history_messages = _trim_history(session.history)
     full_text_parts: list[str] = []
     try:
         async for token in registry.llm.stream_response(
