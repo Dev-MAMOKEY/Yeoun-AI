@@ -59,3 +59,18 @@ onnxruntime-gpu
 opencv-python-headless
 polygraphy
 colored
+
+# librosa 보조 의존성 — environment.yaml 핀과 동일 줄기.
+audioread
+pooch
+soxr
+lazy-loader
+joblib
+msgpack
+numba
+llvmlite
+decorator
+threadpoolctl
+scipy
+scikit-learn
+platformdirs
