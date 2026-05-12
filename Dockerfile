@@ -2,10 +2,11 @@
 # ---------------------------------------------------------------------------
 # Yeoun Persona Engine — FastAPI runtime image
 #
-# Target hardware: NVIDIA RTX PRO 4000 Blackwell (sm_120), 24GB VRAM.
-# CUDA 12.8.1 + cuDNN runtime is the first stable line covering Blackwell.
-# If pycuda fails to build with the runtime image (no `nvcc`), swap the
-# base for `nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04`.
+# 타겟 하드웨어: NVIDIA RTX PRO 4000 Blackwell (sm_120), 24GB VRAM.
+# CUDA 12.8.1 + cuDNN runtime 은 Blackwell 을 포함하는 첫 안정 라인.
+# Ditto 는 PyTorch 백엔드(`ditto_pytorch`) 를 사용하므로 nvcc 가 필요한
+# pycuda/tensorrt 빌드는 없다. 향후 TRT 백엔드로 회귀 시에는 devel 이미지
+# (`nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04`) 로 교체.
 # ---------------------------------------------------------------------------
 FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04
 
@@ -17,11 +18,14 @@ ENV DEBIAN_FRONTEND=noninteractive \
     VIRTUAL_ENV=/opt/venv \
     PATH=/opt/venv/bin:$PATH
 
-# --- System dependencies ----------------------------------------------------
-# Python 3.11 from deadsnakes PPA (Ubuntu 22.04 default is 3.10).
-# ffmpeg / libsndfile1 are required by librosa/soundfile and Ditto inference.
-# build-essential is kept for source-built wheels (e.g. pycuda fallback).
-# curl powers the HEALTHCHECK below.
+# --- 시스템 의존성 ---------------------------------------------------------
+# Python 3.11 은 deadsnakes PPA 에서 (Ubuntu 22.04 기본은 3.10).
+# ffmpeg / libsndfile1 은 librosa·soundfile·Ditto inference 가 사용.
+# build-essential 은 일부 휠(cython, numba 등) 의 소스 빌드 폴백용.
+# libsm6 / libxext6 / libgl1 / libgles2-mesa / libegl1 / libglu1-mesa 는
+#   opencv-python-headless 와 mediapipe 가 dlopen 으로 잡는 GLX/EGL 심볼.
+#   Ditto inference.py 가 mediapipe·OpenCV 를 import 하므로 필수.
+# curl 은 아래 HEALTHCHECK 가 사용.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         software-properties-common ca-certificates curl gnupg \
  && add-apt-repository -y ppa:deadsnakes/ppa \
