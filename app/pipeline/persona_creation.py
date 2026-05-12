@@ -156,6 +156,39 @@ async def _prepare_voice_ref(voice_path: Path, ref_audio_path: Path) -> None:
     logger.info("ref_audio 복사: %s -> %s", voice_path, ref_audio_path)
 
 
+async def _render_idle_clips(
+    photo_path: Path,
+    idle_dir: Path,
+    registry,
+    *,
+    count: int = 2,
+    duration_seconds: float = 7.0,
+) -> list[Path]:
+    """idle 클립 N 개를 `idle_dir/{0..N-1}.mp4` 로 렌더.
+
+    클라이언트가 0↔1 번갈아 재생해 자연스러운 변주를 얻도록 기본 2 개. 각
+    인덱스별로 멱등 — 이미 비어 있지 않은 파일이 있으면 GPU 호출 스킵. GPU
+    진입은 `ditto_semaphore` 로 직렬화.
+    """
+    idle_dir.mkdir(parents=True, exist_ok=True)
+    rendered: list[Path] = []
+    for i in range(count):
+        target = idle_dir / f"{i}.mp4"
+        if target.exists() and target.stat().st_size > 0:
+            logger.info("idle 클립 멱등 스킵: %s", target)
+            rendered.append(target)
+            continue
+        async with registry.ditto_semaphore:
+            await registry.ditto.render_idle(
+                image_path=str(photo_path),
+                output_path=str(target),
+                duration_seconds=duration_seconds,
+            )
+        logger.info("idle 클립 렌더 완료: %s", target)
+        rendered.append(target)
+    return rendered
+
+
 async def process_persona(
     persona_id: UUID,
     *,
