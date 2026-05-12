@@ -8,20 +8,34 @@
 큐 길이 초과 시 503 + Retry-After.
 """
 
+import asyncio
+import os
+import tempfile
 import time
+from pathlib import Path
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi import status as http_status
+from sse_starlette.sse import EventSourceResponse
 
 from ..auth import require_internal_token
+from ..config import Settings, get_settings
 from ..db import repository
 from ..models.registry import ModelRegistry
+from ..pipeline.conversation import process_message
 from ..prompts.system_prompt import build_system_prompt
 from ..schemas.common import Envelope, ok
 from ..schemas.session import SessionStartData, SessionStartRequest
 from ..sessions.schemas import SessionState
 from ..sessions.store import SessionStore
+
+# 동시 SSE 메시지 처리 한도 — 초과 시 503 + Retry-After.
+# 단일 워커·GPU 1 장 전제에서 한 번에 너무 많은 메시지가 큐잉되면 응답 지연이
+# 클라이언트 timeout 을 넘어가기 시작하므로 보수적 상한을 둔다.
+_MAX_CONCURRENT_MESSAGES = 5
+_active_messages = 0
+_message_counter_lock = asyncio.Lock()
 
 router = APIRouter(prefix="/internal/sessions", tags=["sessions"])
 
@@ -93,3 +107,80 @@ async def start_session(
     )
     store.create(session)
     return ok(SessionStartData(session_id=session.session_id))
+
+
+@router.post(
+    "/{session_id}/message",
+    summary="세션 메시지 처리 (SSE)",
+    description=(
+        "사용자 음성 wav/webm 를 multipart 로 받아 한 메시지의 전체 흐름을 SSE 로 송출:\n"
+        "- `event: token` — Gemma 응답 부분 텍스트\n"
+        "- `event: text_done` — 최종 텍스트 + message_id\n"
+        "- `event: media_ready` — TTS+Ditto 합성 완료 mp4 경로\n"
+        "- `event: crisis` — 위기 키워드 감지 시 즉시 종료\n"
+        "- `event: error` — 처리 실패"
+    ),
+    dependencies=[Depends(require_internal_token)],
+    responses={
+        401: {"description": "토큰이 없거나 유효하지 않음 (`UNAUTHORIZED`)."},
+        404: {"description": "세션 없음 (`NOT_FOUND`)."},
+        503: {"description": "동시 처리 한도 초과 (`TOO_MANY_REQUESTS`) 또는 부팅 전 (`SERVICE_UNAVAILABLE`)."},
+    },
+)
+async def post_message(
+    session_id: UUID,
+    request: Request,
+    audio: UploadFile = File(..., description="사용자 발화 wav/webm 파일"),
+    settings: Settings = Depends(get_settings),
+):
+    global _active_messages
+    registry, store = _service_state(request)
+    session = store.get(session_id)
+    if session is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail={"code": "NOT_FOUND", "message": f"세션을 찾을 수 없습니다: {session_id}"},
+        )
+
+    async with _message_counter_lock:
+        if _active_messages >= _MAX_CONCURRENT_MESSAGES:
+            raise HTTPException(
+                status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "TOO_MANY_REQUESTS",
+                    "message": f"동시 처리 한도 {_MAX_CONCURRENT_MESSAGES} 초과. Retry-After 후 재시도.",
+                },
+                headers={"Retry-After": "30"},
+            )
+        _active_messages += 1
+
+    # audio 임시 저장 — 진입 try 안에서 실패하면 counter 즉시 복구.
+    try:
+        suffix = Path(audio.filename or "audio.wav").suffix or ".wav"
+        fd, tmp_name = tempfile.mkstemp(suffix=suffix, prefix="msg_")
+        os.close(fd)
+        tmp_path = Path(tmp_name)
+        content = await audio.read()
+        tmp_path.write_bytes(content)
+        await audio.close()
+    except Exception:
+        async with _message_counter_lock:
+            _active_messages -= 1
+        raise
+
+    async def event_generator():
+        global _active_messages
+        try:
+            # 같은 세션의 동시 메시지 차단 (한 세션은 한 번에 한 메시지만).
+            async with session.lock:
+                async for ev in process_message(session, tmp_path, registry, settings.persona_dir):
+                    yield ev
+        finally:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            async with _message_counter_lock:
+                _active_messages -= 1
+
+    return EventSourceResponse(event_generator())
