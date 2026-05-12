@@ -38,12 +38,11 @@ class ModelRegistry:
         """상주 모델을 부팅 시점에 로드."""
         logger.info("ModelRegistry 시작 — Gemma LLM 로드 시도")
         self.llm = GemmaLLM(
-            awq_path=self._settings.llm_awq_path,
             bf16_path=self._settings.llm_bf16_path,
             gpu_enabled=self._settings.gpu_enabled,
         )
         await self.llm.load()
-        logger.info("Gemma LLM 상태=%s, variant=%s", self.llm.status, self.llm.variant)
+        logger.info("Gemma LLM 상태=%s", self.llm.status)
 
     async def stop(self) -> None:
         """모든 모델 자원 정리."""

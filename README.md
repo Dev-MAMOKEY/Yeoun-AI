@@ -4,7 +4,7 @@
 
 ## 구성
 
-- **LLM**: `google/gemma-4-E4B-it` (AWQ INT4, 멀티모달 audio-in)
+- **LLM**: `google/gemma-4-E4B-it` (BF16, 멀티모달 audio-in)
 - **TTS**: `k2-fsa/OmniVoice` (zero-shot voice cloning)
 - **Talking Head**: `antgroup/ditto-talkinghead` (TensorRT, 온디맨드)
 

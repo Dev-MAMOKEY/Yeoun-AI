@@ -10,20 +10,18 @@ from app.models.registry import ModelRegistry
 
 
 async def test_gemma_dummy_load_then_unload():
-    llm = GemmaLLM(awq_path=None, bf16_path=None, gpu_enabled=False)
+    llm = GemmaLLM(bf16_path=None, gpu_enabled=False)
 
     assert llm.status == "not_loaded"
     await llm.load()
     assert llm.status == "loaded"
-    # 더미 모드는 가중치 variant 를 설정하지 않는다.
-    assert llm.variant is None
 
     await llm.unload()
     assert llm.status == "not_loaded"
 
 
 async def test_gemma_dummy_transcribe_returns_filename_hint():
-    llm = GemmaLLM(awq_path=None, bf16_path=None, gpu_enabled=False)
+    llm = GemmaLLM(bf16_path=None, gpu_enabled=False)
     await llm.load()
 
     result = await llm.transcribe("/tmp/sample.wav")
@@ -33,7 +31,7 @@ async def test_gemma_dummy_transcribe_returns_filename_hint():
 
 
 async def test_gemma_dummy_stream_yields_tokens():
-    llm = GemmaLLM(awq_path=None, bf16_path=None, gpu_enabled=False)
+    llm = GemmaLLM(bf16_path=None, gpu_enabled=False)
     await llm.load()
 
     collected: list[str] = []

@@ -1,14 +1,12 @@
 """GemmaLLM — `google/gemma-4-E4B-it` 멀티모달 로더 + 추론.
 
-- 부팅 시 AWQ INT4 가중치 우선 로드. Blackwell(sm_120) 등에서 AWQ 커널이
-  미지원이면 BF16 으로 폴백한다.
+- 부팅 시 BF16 가중치를 GPU 에 적재한다.
 - 음성 입력은 멀티모달 audio-in 으로 Gemma 가 직접 이해해 한국어 응답을 만든다.
 - 토큰은 transformers `TextIteratorStreamer` 를 별도 스레드에 띄워 async 큐로
   yield (단일 워커 + asyncio 단일 루프 전제).
 - `GPU_ENABLED=false` 모드는 모든 호출을 더미 텍스트/토큰 반환으로 단락 처리.
 
-이슈 #6 범위는 로더·전사·스트림 API 까지. 시스템 프롬프트 조립과 conversation
-파이프라인은 #10 에서 본 클래스를 호출한다.
+시스템 프롬프트 조립과 conversation 파이프라인은 #10 에서 본 클래스를 호출한다.
 """
 
 from __future__ import annotations
@@ -42,6 +40,7 @@ def _next_or_stop(iterator):  # type: ignore[no-untyped-def]
     except StopIteration:
         return _STOP_SENTINEL
 
+
 _DUMMY_RESPONSE_TOKENS = (
     "[",
     "더미",
@@ -63,30 +62,23 @@ LlmStatus = Literal["not_loaded", "loading", "loaded", "error"]
 
 
 class GemmaLLM:
-    """Gemma 4 E4B-it 멀티모달 LLM 래퍼."""
+    """Gemma 4 E4B-it 멀티모달 LLM 래퍼 (BF16 단일 로드)."""
 
     def __init__(
         self,
         *,
-        awq_path: str | None,
         bf16_path: str | None,
         gpu_enabled: bool,
     ) -> None:
-        self._awq_path = awq_path
         self._bf16_path = bf16_path
         self._gpu_enabled = gpu_enabled
         self._status: LlmStatus = "not_loaded"
         self._model = None
         self._processor = None
-        self._loaded_variant: Literal["awq", "bf16"] | None = None
 
     # --- 라이프사이클 -------------------------------------------------------
     async def load(self) -> None:
-        """가중치를 GPU 에 적재.
-
-        AWQ INT4 우선 시도 → 실패 시(Blackwell 등에서 AWQ 커널 미지원) BF16 폴백.
-        둘 다 실패하면 `error` 상태로 예외 raise. 더미 모드는 즉시 `loaded`.
-        """
+        """BF16 가중치를 GPU 에 적재. 더미 모드는 즉시 `loaded`."""
         if not self._gpu_enabled:
             logger.info("GPU_ENABLED=false → GemmaLLM 더미 모드")
             self._status = "loaded"
@@ -94,44 +86,23 @@ class GemmaLLM:
 
         self._status = "loading"
 
-        if self._awq_path:
-            try:
-                await asyncio.to_thread(self._load_variant, "awq", self._awq_path)
-                self._loaded_variant = "awq"
-                self._status = "loaded"
-                return
-            except (FileNotFoundError, PermissionError, IsADirectoryError, NotADirectoryError, OSError):
-                # 가중치 경로/디스크 같은 환경 오류는 BF16 으로 가도 동일하게 실패한다.
-                # silently 폴백해 운영자가 원인을 헷갈리지 않도록 즉시 재raise 한다.
-                self._status = "error"
-                logger.exception("AWQ 로드 환경 오류 — BF16 폴백 안 함")
-                raise
-            except Exception as exc:  # noqa: BLE001 — 커널/포맷 추정 케이스만 폴백
-                # AutoAWQ 커널 미지원(Blackwell), AWQ config 파싱 오류 등 추정.
-                logger.warning(
-                    "AWQ 로드 실패 (커널 미지원 또는 포맷 문제 추정) — BF16 폴백 시도: %s",
-                    exc,
-                )
+        if not self._bf16_path:
+            self._status = "error"
+            raise RuntimeError(
+                "LLM_BF16_PATH 가 비어 있습니다. 가중치 디렉토리 또는 HF repo ID 를 "
+                "설정하거나 GPU_ENABLED=false 로 더미 모드를 사용하십시오."
+            )
 
-        if self._bf16_path:
-            try:
-                await asyncio.to_thread(self._load_variant, "bf16", self._bf16_path)
-                self._loaded_variant = "bf16"
-                self._status = "loaded"
-                return
-            except Exception:
-                logger.exception("BF16 로드도 실패")
-                self._status = "error"
-                raise
+        try:
+            await asyncio.to_thread(self._load_bf16, self._bf16_path)
+            self._status = "loaded"
+        except Exception:
+            logger.exception("Gemma BF16 로드 실패")
+            self._status = "error"
+            raise
 
-        self._status = "error"
-        raise RuntimeError(
-            "LLM 가중치 경로가 모두 비어 있습니다. LLM_AWQ_PATH 또는 LLM_BF16_PATH 중 "
-            "최소 하나를 설정하거나 GPU_ENABLED=false 로 더미 모드를 사용하십시오."
-        )
-
-    def _load_variant(self, variant: Literal["awq", "bf16"], path: str) -> None:
-        """단일 변형 가중치를 동기 로드. `asyncio.to_thread` 안에서 호출된다."""
+    def _load_bf16(self, path: str) -> None:
+        """BF16 가중치를 동기 로드. `asyncio.to_thread` 안에서 호출된다."""
         # transformers >= 4.50 의 멀티모달 클래스. 일부 버전엔 이 이름이 없어
         # AutoModelForCausalLM 으로 폴백 — Gemma 4 model card 의 멀티모달 예시는
         # AutoModelForMultimodalLM 을 쓰지만 가용성이 환경마다 다르다.
@@ -139,22 +110,17 @@ class GemmaLLM:
             from transformers import AutoModelForMultimodalLM as _AutoModel  # type: ignore[attr-defined]
         except ImportError:
             from transformers import AutoModelForCausalLM as _AutoModel  # type: ignore[assignment]
+        import torch
         from transformers import AutoProcessor
 
-        logger.info("Gemma %s 로드 시작: %s", variant.upper(), path)
+        logger.info("Gemma BF16 로드 시작: %s", path)
         self._processor = AutoProcessor.from_pretrained(path)
-
-        load_kwargs: dict[str, object] = {"device_map": "auto"}
-        if variant == "awq":
-            # AWQ 양자화 가중치는 dtype 을 그대로 따른다 ("auto").
-            load_kwargs["dtype"] = "auto"
-        else:
-            import torch
-
-            load_kwargs["dtype"] = torch.bfloat16
-
-        self._model = _AutoModel.from_pretrained(path, **load_kwargs)
-        logger.info("Gemma %s 로드 완료", variant.upper())
+        self._model = _AutoModel.from_pretrained(
+            path,
+            device_map="auto",
+            dtype=torch.bfloat16,
+        )
+        logger.info("Gemma BF16 로드 완료")
 
     async def unload(self) -> None:
         """모델 자원을 해제. 더미 모드면 no-op."""
@@ -163,7 +129,6 @@ class GemmaLLM:
             return
         self._model = None
         self._processor = None
-        self._loaded_variant = None
         self._status = "not_loaded"
         # GPU 메모리 회수 — torch 가 import 가능할 때만.
         try:
@@ -178,10 +143,6 @@ class GemmaLLM:
     @property
     def status(self) -> LlmStatus:
         return self._status
-
-    @property
-    def variant(self) -> Literal["awq", "bf16"] | None:
-        return self._loaded_variant
 
     # --- 추론 ---------------------------------------------------------------
     async def transcribe(self, audio_path: str | Path) -> str:
