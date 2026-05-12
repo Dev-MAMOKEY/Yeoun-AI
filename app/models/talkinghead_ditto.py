@@ -95,12 +95,54 @@ class DittoTalkingHead:
         audio_path: str | Path,
         output_path: str | Path,
     ) -> Path:
-        """발화 영상 렌더. 사진 + 발화 wav → 입 모양 동기화 mp4."""
+        """발화 영상 렌더. 사진 + 발화 wav → 입 모양 동기화 mp4.
+
+        Ditto repo 의 `inference.py` CLI 를 subprocess 로 호출한다. 매 호출이
+        독립 프로세스라 종료 시 GPU 메모리가 자동 회수된다 (명세 "온디맨드
+        로드/언로드" 의도와 일치). 호출자(#9·#10) 는 `ModelRegistry.ditto_semaphore`
+        로 한 번에 1 건 렌더만 허용해야 한다.
+        """
         target = Path(output_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+
         if not self._gpu_enabled:
             await asyncio.to_thread(_write_dummy_mp4, target)
             return target
-        raise NotImplementedError("Ditto 실 렌더 분기는 다음 커밋에서 구현.")
+
+        if self._status != "loaded":
+            raise RuntimeError("DittoTalkingHead 가 로드되지 않았습니다.")
+        assert self._vendor_dir and self._data_root and self._cfg_pkl
+
+        vendor = Path(self._vendor_dir).resolve()
+        inference_py = vendor / "inference.py"
+        cmd = [
+            sys.executable,
+            str(inference_py),
+            "--data_root", self._data_root,
+            "--cfg_pkl", self._cfg_pkl,
+            "--audio_path", str(audio_path),
+            "--source_path", str(image_path),
+            "--output_path", str(target),
+        ]
+
+        logger.info("Ditto inference 시작: %s", target)
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=str(vendor),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            # 운영자가 stderr 마지막 부분을 보고 빠르게 진단할 수 있게 잘라 전달.
+            stderr_tail = stderr.decode(errors="replace")[-1000:]
+            raise RuntimeError(
+                f"Ditto inference 실패 (rc={proc.returncode}): {stderr_tail}"
+            )
+        if not target.exists():
+            raise RuntimeError(f"Ditto inference 가 output 을 생성하지 않음: {target}")
+        logger.info("Ditto inference 완료: %s", target)
+        return target
 
     async def render_idle(
         self,
