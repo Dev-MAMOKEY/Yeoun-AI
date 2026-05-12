@@ -14,9 +14,11 @@ from fastapi import status as http_status
 
 from ..auth import require_internal_token
 from ..config import Settings, get_settings
+from ..db import repository
 from ..models.registry import ModelRegistry
 from ..pipeline.persona_creation import PersonaProcessingStore, process_persona
 from ..schemas.common import Envelope, ok
+from ..schemas.persona import PersonaStatusData
 
 router = APIRouter(prefix="/internal/personas", tags=["personas"])
 
@@ -62,3 +64,42 @@ async def start_processing(
         store=store,
     )
     return ok(None)
+
+
+@router.get(
+    "/{persona_id}/status",
+    response_model=Envelope[PersonaStatusData],
+    summary="페르소나 생성 진행 상태 조회",
+    description=(
+        "Spring 이 대기 화면에서 5초 주기로 폴링하는 엔드포인트. "
+        "`status` 는 DB(또는 USE_DB_MOCK 인메모리 repository) 에서, "
+        "`step` 은 PersonaProcessingStore 에서 가져온다. 워커 메모리라 재시작 시 step 사라짐 — "
+        "그 경우 `step=null` 이지만 `status` 는 그대로 유지."
+    ),
+    dependencies=[Depends(require_internal_token)],
+    responses={
+        200: {"description": "상태 조회 성공."},
+        401: {"description": "토큰이 없거나 유효하지 않음 (`UNAUTHORIZED`)."},
+        404: {"description": "페르소나 없음 (`NOT_FOUND`)."},
+    },
+)
+async def get_status(
+    persona_id: UUID,
+    request: Request,
+) -> Envelope[PersonaStatusData]:
+    record = await repository.get_persona(persona_id)
+    if record is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail={"code": "NOT_FOUND", "message": f"페르소나를 찾을 수 없습니다: {persona_id}"},
+        )
+    store: PersonaProcessingStore | None = getattr(request.app.state, "persona_store", None)
+    state = store.get(persona_id) if store is not None else None
+    return ok(
+        PersonaStatusData(
+            persona_id=persona_id,
+            status=record.status,
+            step=state.step if state is not None else None,
+            error_reason=state.error_reason if state is not None else None,
+        )
+    )
