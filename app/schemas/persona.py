@@ -78,3 +78,14 @@ class IdleClipsData(BaseModel):
         ...,
         description="idle 클립 메타 목록. status=`ready` 일 때 보통 2개.",
     )
+
+
+class UploadResult(BaseModel):
+    """`POST /internal/personas/{id}/photo|voice` 응답 페이로드."""
+
+    path: str = Field(
+        ...,
+        description="PERSONA_DIR 기준 상대 경로 — `{persona_id}/{photo|voice}/{filename}`.",
+        examples=["22222222-2222-2222-2222-222222222222/photo/face.jpg"],
+    )
+    size_bytes: int = Field(..., ge=0, description="저장된 파일 크기(바이트).", examples=[124589])
