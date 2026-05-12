@@ -23,6 +23,7 @@ from typing import AsyncIterator
 from uuid import uuid4
 
 from ..safety.input_guard import check_crisis
+from ..safety.output_guard import filter_response
 from ..sessions.schemas import MessageRecord, SessionState
 
 logger = logging.getLogger("yeoun")
@@ -64,3 +65,30 @@ async def process_message(
             ),
         }
         return
+
+    # 3. Gemma 응답 스트림 — audio-in 으로 직접 처리, 토큰을 누적하며 SSE 로 전달.
+    history_messages = [{"role": m.role, "text": m.text} for m in session.history]
+    full_text_parts: list[str] = []
+    try:
+        async for token in registry.llm.stream_response(
+            system_prompt=session.system_prompt,
+            history=history_messages,
+            user_audio_path=audio_path,
+        ):
+            full_text_parts.append(token)
+            yield {"event": "token", "data": token}
+    except Exception as exc:  # noqa: BLE001 — 스트림 실패는 SSE 에러로 환원
+        logger.exception("stream_response 실패: session=%s", session.session_id)
+        yield {"event": "error", "data": json.dumps({"reason": f"stream_failed: {type(exc).__name__}"})}
+        return
+
+    full_text = "".join(full_text_parts).strip()
+
+    # 4. 출력 안전 필터 — 금지 주제 키워드 마스킹 (이슈 #5).
+    filtered = filter_response(full_text)
+    final_text = filtered.text
+
+    yield {
+        "event": "text_done",
+        "data": json.dumps({"message_id": str(message_id), "text": final_text}),
+    }
