@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # ---------------------------------------------------------------------------
-# Yeoun Persona Engine — FastAPI runtime image
+# Yeoun Persona Engine — FastAPI 런타임 이미지
 #
 # 타겟 하드웨어: NVIDIA RTX PRO 4000 Blackwell (sm_120), 24GB VRAM.
 # CUDA 12.8.1 + cuDNN runtime 은 Blackwell 을 포함하는 첫 안정 라인.
