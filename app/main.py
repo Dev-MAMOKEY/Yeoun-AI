@@ -106,9 +106,10 @@ WireGuard 내부망에서 Spring Boot가 프록시합니다.
 { "success": false, "data": null,    "error": { "code": "...", "message": "..." } }
 ```
 
-표준 에러 코드: `UNAUTHORIZED`·`INVALID_TOKEN`·`MISSING_TOKEN`·`NOT_FOUND`·`CONFLICT`·
-`VALIDATION_ERROR`·`SERVICE_UNAVAILABLE`·`TOO_MANY_REQUESTS`·`RANGE_NOT_SATISFIABLE`·
-`DELETE_FAILED`·`INTERNAL_ERROR`.
+표준 에러 코드: `MISSING_TOKEN`·`INVALID_TOKEN`·`UNAUTHORIZED`·`BAD_REQUEST`·
+`FORBIDDEN`·`NOT_FOUND`·`METHOD_NOT_ALLOWED`·`CONFLICT`·`VALIDATION_ERROR`·
+`TOO_MANY_REQUESTS`·`RANGE_NOT_SATISFIABLE`·`SERVICE_UNAVAILABLE`·`DELETE_FAILED`·
+`INTERNAL_ERROR`.
 
 ## 흐름 A — 페르소나 생성 (이슈 #9)
 업로드 완료 후 백그라운드 파이프라인이 voice 전사·ref 자원 보관·idle 클립 2개 렌더 수행.
@@ -136,7 +137,7 @@ GET  /internal/sessions/{id}/messages/{msg}/media?kind=audio|video → wav/mp4 (
 |---|---|---|
 | `token` | `<부분 텍스트>` | Gemma 응답 토큰 — 누적해 화면에 점진 표시 |
 | `text_done` | `{"message_id": "...", "text": "..."}` | 응답 완료, 출력 안전 필터 적용 후 |
-| `media_ready` | `{"message_id": "...", "path": "{persona_id}/speak/{session_id}/{msg}.mp4"}` | TTS+Ditto 합성 완료, GET media 라우트로 가져갈 수 있음 |
+| `media_ready` | `{"message_id": "...", "path": "{persona_id}/speak/{session_id}/{message_id}.mp4"}` | TTS+Ditto 합성 완료, GET media 라우트로 가져갈 수 있음 |
 | `crisis` | `{"message_id": "...", "keyword": "...", "guidance": "..."}` | 위기 키워드 감지, 즉시 안전 가이드로 전환 |
 | `error` | `{"reason": "..."}` | 처리 실패 — transcribe·stream·media 단계 중 어디서 |
 

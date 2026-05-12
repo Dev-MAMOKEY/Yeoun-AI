@@ -132,6 +132,7 @@ pytest --cov=app --cov-report=term-missing
 | `USE_DB_MOCK` | `false` | true 면 인메모리 mock repository |
 | `GPU_ENABLED` | `true` | false 면 모델 로더가 더미 모드 (개발·테스트용) |
 | `MODELS_DIR` | `/models` | HF 캐시·가중치 볼륨 마운트 경로 |
+| `HF_HOME` | `/models/hf-cache` | HuggingFace 캐시 디렉토리. `MODELS_DIR` 볼륨 재사용을 위해 하위에 배치 |
 | `PERSONA_DIR` | `/var/persona` | 페르소나 자원 (photo/voice/voice_ref/idle/speak) 루트 |
 | `LLM_BF16_PATH` | `google/gemma-4-E4B-it` | HF repo ID 또는 로컬 경로 |
 | `TTS_MODEL_PATH` | `k2-fsa/OmniVoice` | OmniVoice repo ID 또는 로컬 경로 |
