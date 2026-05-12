@@ -92,3 +92,62 @@ async def process_message(
         "event": "text_done",
         "data": json.dumps({"message_id": str(message_id), "text": final_text}),
     }
+
+    # 5. 세션 history 갱신 — 텍스트만 보관 (명세 「공통 규칙」 영속화 금지).
+    now = time.time()
+    session.history.append(MessageRecord(role="user", text=user_text, created_at=now))
+    session.history.append(MessageRecord(role="assistant", text=final_text, created_at=now))
+    session.last_activity_at = now
+
+    # 6. TTS + Ditto 합성 — 본 SSE 안에서 await, 완료 후 media_ready yield.
+    try:
+        persona_root = Path(persona_dir) / str(session.persona_id)
+        speak_dir = persona_root / "speak" / str(session.session_id)
+        speak_dir.mkdir(parents=True, exist_ok=True)
+        wav_path = speak_dir / f"{message_id}.wav"
+        mp4_path = speak_dir / f"{message_id}.mp4"
+
+        voice_ref_dir = persona_root / "voice_ref"
+        ref_text_path = voice_ref_dir / "ref_text.txt"
+        ref_audio_candidates = sorted(voice_ref_dir.glob("ref_audio.*")) if voice_ref_dir.exists() else []
+        if not ref_audio_candidates or not ref_text_path.exists():
+            raise FileNotFoundError(f"voice_ref 누락: {voice_ref_dir}")
+        ref_audio_path = ref_audio_candidates[0]
+        ref_text = ref_text_path.read_text(encoding="utf-8")
+
+        async with registry.gpu_semaphore:
+            await registry.tts.synthesize(
+                text=final_text,
+                ref_audio_path=str(ref_audio_path),
+                ref_text=ref_text,
+                output_path=str(wav_path),
+            )
+
+        photo_dir = persona_root / "photo"
+        photo_candidates = (
+            [p for p in photo_dir.iterdir() if p.is_file()] if photo_dir.exists() else []
+        )
+        if not photo_candidates:
+            raise FileNotFoundError(f"photo 누락: {photo_dir}")
+        photo_path = max(photo_candidates, key=lambda p: p.stat().st_mtime)
+
+        async with registry.ditto_semaphore:
+            await registry.ditto.render_speak(
+                image_path=str(photo_path),
+                audio_path=str(wav_path),
+                output_path=str(mp4_path),
+            )
+    except Exception as exc:  # noqa: BLE001 — 합성 실패는 SSE 에러로 환원
+        logger.exception("미디어 합성 실패: session=%s", session.session_id)
+        yield {
+            "event": "error",
+            "data": json.dumps({"reason": f"media_failed: {type(exc).__name__}: {exc}"[:200]}),
+        }
+        return
+
+    # PERSONA_DIR 기준 상대 경로 — 내부 절대경로 노출 차단 (#9 의 IdleClipMeta.path 와 동일 패턴).
+    relative_mp4 = f"{session.persona_id}/speak/{session.session_id}/{message_id}.mp4"
+    yield {
+        "event": "media_ready",
+        "data": json.dumps({"message_id": str(message_id), "path": relative_mp4}),
+    }
