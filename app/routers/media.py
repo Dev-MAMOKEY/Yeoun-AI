@@ -41,7 +41,7 @@ def _stream_response(path: Path, range_header: str | None, media_type: str) -> S
         rng = parse_range(range_header, size)
     except RangeNotSatisfiable as exc:
         raise HTTPException(
-            status_code=http_status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+            status_code=http_status.HTTP_416_RANGE_NOT_SATISFIABLE,
             headers={"Content-Range": f"bytes */{size}"},
             detail={"code": "RANGE_NOT_SATISFIABLE", "message": str(exc)},
         )
