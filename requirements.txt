@@ -58,7 +58,9 @@ einops
 # 고정 — 무핀이면 onnxruntime-gpu 가 CUDA 12.x wheel 미배포 시 조용히 CPU
 # 폴백되거나, numba/llvmlite/mediapipe 의 마이너 버전 ABI 불일치로 import 실패.
 mediapipe>=0.10,<0.11
-onnxruntime-gpu>=1.18,<1.22
+# 상한 핀은 Python 3.14 wheel(1.24+ 부터 배포) 와 호환을 깨므로 하한만.
+# 패키지명이 `onnxruntime-gpu` 라 CPU 폴백 자체가 일어나지 않음 (wheel 없으면 설치 실패).
+onnxruntime-gpu>=1.18
 opencv-python-headless
 polygraphy
 colored
