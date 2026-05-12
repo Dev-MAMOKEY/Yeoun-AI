@@ -20,7 +20,7 @@ from .config import get_settings
 from .db.engine import ping as db_ping
 from .models.registry import ModelRegistry
 from .pipeline.persona_creation import PersonaProcessingStore
-from .routers import health, personas, sessions
+from .routers import health, media, personas, sessions
 from .schemas.common import fail
 from .sessions.store import SessionStore
 
@@ -178,3 +178,4 @@ async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSON
 app.include_router(health.router)
 app.include_router(personas.router)
 app.include_router(sessions.router)
+app.include_router(media.router)
