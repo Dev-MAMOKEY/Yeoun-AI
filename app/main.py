@@ -19,6 +19,7 @@ from . import __version__
 from .config import get_settings
 from .db.engine import ping as db_ping
 from .models.registry import ModelRegistry
+from .pipeline.persona_creation import PersonaProcessingStore
 from .routers import health
 from .schemas.common import fail
 from .sessions.store import SessionStore
@@ -55,6 +56,9 @@ async def lifespan(app: FastAPI):
     session_store = SessionStore()
     await session_store.start()
     app.state.session_store = session_store
+
+    # 페르소나 생성 진행률 스토어 — 워커 로컬 dict, sweeper 불필요.
+    app.state.persona_store = PersonaProcessingStore()
 
     # ModelRegistry — Gemma LLM 부팅 시 BF16 로드.
     # 더미 모드(GPU_ENABLED=false) 면 즉시 통과.
