@@ -74,3 +74,10 @@ threadpoolctl
 scipy
 scikit-learn
 platformdirs
+
+# 이미지/비디오 IO — Ditto 의 frame writer 가 사용.
+scikit-image
+tifffile
+imageio
+imageio-ffmpeg
+filetype
