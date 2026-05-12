@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -120,6 +121,24 @@ async def _transcribe_voice(
     ref_text_path.write_text(text, encoding="utf-8")
     logger.info("ref_text 저장: %s (%d 자)", ref_text_path, len(text))
     return text
+
+
+async def _prepare_voice_ref(voice_path: Path, ref_audio_path: Path) -> None:
+    """OmniVoice ref 자원으로 voice 파일을 voice_ref/ref_audio.<ext> 로 복사.
+
+    명세서는 "embedding 추출" 을 명시하지만 OmniVoice 가 embedding 추출 API 를
+    공개하지 않으므로 본 1차 구현은 매 합성 시 ref_audio + ref_text 를 그대로
+    재사용하는 방식. 본 helper 는 그 ref_audio 를 voice/ 의 후속 업로드와 분리된
+    안정적 경로(`voice_ref/`)에 복사한다.
+
+    멱등성: ref_audio_path 가 이미 존재하면 스킵.
+    """
+    if ref_audio_path.exists():
+        logger.info("ref_audio 멱등 스킵: %s", ref_audio_path)
+        return
+    ref_audio_path.parent.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(shutil.copy2, voice_path, ref_audio_path)
+    logger.info("ref_audio 복사: %s -> %s", voice_path, ref_audio_path)
 
 
 async def process_persona(
