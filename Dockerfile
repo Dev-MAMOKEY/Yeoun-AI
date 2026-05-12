@@ -29,6 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3.11 python3.11-venv python3.11-dev \
         build-essential \
         ffmpeg libsndfile1 \
+        libsm6 libxext6 libgl1 libgles2-mesa libegl1 libglu1-mesa \
  && rm -rf /var/lib/apt/lists/*
 
 # --- Non-root user ----------------------------------------------------------
