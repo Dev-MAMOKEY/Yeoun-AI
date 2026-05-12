@@ -29,11 +29,15 @@ class ProcessingStep(str, Enum):
 class PersonaStatusData(BaseModel):
     """`GET /internal/personas/{id}/status` 응답 페이로드."""
 
-    persona_id: UUID = Field(..., description="페르소나 PK.")
+    persona_id: UUID = Field(
+        ...,
+        description="페르소나 PK.",
+        examples=["22222222-2222-2222-2222-222222222222"],
+    )
     status: str = Field(
         ...,
         description="DB 상의 페르소나 status — created/processing/ready/failed.",
-        examples=["processing", "ready", "failed"],
+        examples=["ready"],
     )
     step: ProcessingStep | None = Field(
         None,
@@ -41,11 +45,12 @@ class PersonaStatusData(BaseModel):
             "현재 진행률 세부 단계. status=`processing` 일 때만 의미. "
             "워커 메모리 기반(In-memory PersonaProcessingStore)이라 워커 재시작 시 사라진다."
         ),
+        examples=["rendering_idle"],
     )
     error_reason: str | None = Field(
         None,
         description="status=`failed` 일 때 운영자/Spring 진단용 한국어 에러 요약.",
-        examples=["Gemma 전사 실패: cuda OOM"],
+        examples=["FileNotFoundError: voice 디렉토리 없음"],
     )
 
 

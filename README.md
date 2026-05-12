@@ -4,16 +4,19 @@
 
 ## 구성
 
-- **LLM**: `google/gemma-4-E4B-it` (BF16, 멀티모달 audio-in)
-- **TTS**: `k2-fsa/OmniVoice` (zero-shot voice cloning)
-- **Talking Head**: `antgroup/ditto-talkinghead` (TensorRT, 온디맨드)
+- **LLM**: `google/gemma-4-E4B-it` (BF16, 멀티모달 audio-in, 상주)
+- **TTS**: `k2-fsa/OmniVoice` (zero-shot voice cloning, 상주)
+- **Talking Head**: `antgroup/ditto-talkinghead` (PyTorch 백엔드, subprocess 온디맨드)
+
+Blackwell sm_120 호환을 위해 vendor 가 빌드한 TRT 8.6.1 엔진 대신 PyTorch 백엔드 사용. TRT 재빌드는 이슈 #15.
 
 ## 요구사항
 
 - NVIDIA Blackwell GPU 24GB VRAM (예: RTX PRO 4000 Blackwell)
-- CUDA 12.8+, TensorRT 10.7+
-- Python 3.11+
+- CUDA 12.8+ (PyTorch wheel `cu128` 인덱스)
+- Python 3.11+ (Docker 이미지), 로컬 venv 는 Python 3.10~3.14 호환
 - Docker (배포용), `nvidia-container-toolkit`
+- 시스템 `ffmpeg` (도커는 apt 로 자동 설치, 로컬 venv 는 별도)
 
 ## 부팅 절차 (개발)
 
@@ -120,4 +123,28 @@ pytest --cov=app --cov-report=term-missing
 
 ## 환경 변수
 
-`.env.example` 참고.
+상세는 `.env.example`. 주요 변수:
+
+| 변수 | 기본/예시 | 의미 |
+|---|---|---|
+| `INTERNAL_TOKEN` | (필수) | Spring Boot 와 공유하는 Bearer 토큰. `python -c "import secrets; print(secrets.token_urlsafe(48))"` 로 생성 |
+| `DATABASE_URL` | `postgresql+asyncpg://...` | asyncpg DSN. `USE_DB_MOCK=true` 면 미사용 |
+| `USE_DB_MOCK` | `false` | true 면 인메모리 mock repository |
+| `GPU_ENABLED` | `true` | false 면 모델 로더가 더미 모드 (개발·테스트용) |
+| `MODELS_DIR` | `/models` | HF 캐시·가중치 볼륨 마운트 경로 |
+| `HF_HOME` | `/models/hf-cache` | HuggingFace 캐시 디렉토리. `MODELS_DIR` 볼륨 재사용을 위해 하위에 배치 |
+| `PERSONA_DIR` | `/var/persona` | 페르소나 자원 (photo/voice/voice_ref/idle/speak) 루트 |
+| `LLM_BF16_PATH` | `google/gemma-4-E4B-it` | HF repo ID 또는 로컬 경로 |
+| `TTS_MODEL_PATH` | `k2-fsa/OmniVoice` | OmniVoice repo ID 또는 로컬 경로 |
+| `DITTO_VENDOR_DIR` | `./vendor/ditto-talkinghead` | Ditto 소스 코드 디렉토리 |
+| `DITTO_DATA_ROOT` | `.../checkpoints/ditto_pytorch` | PyTorch 백엔드 가중치. Ampere/Ada 인스턴스는 `ditto_trt_Ampere_Plus` 로 |
+| `DITTO_CFG_PKL` | `.../v0.4_hubert_cfg_pytorch.pkl` | PyTorch 백엔드 cfg. TRT 백엔드는 `_trt.pkl` |
+| `LOG_LEVEL` | `INFO` | DEBUG / INFO / WARNING / ERROR |
+
+## 동시성·큐 정책
+
+- uvicorn `--workers 1` 단일 워커. 멀티 워커 금지 (모델 중복 적재).
+- GPU 추론 진입은 `gpu_semaphore` (LLM/TTS 공유, 1건) + `ditto_semaphore` (Ditto subprocess, 1건) 로 직렬화.
+- 동시 SSE 메시지 처리 한도: **5건**. 초과 시 503 + `Retry-After: 30`.
+- 세션 TTL: 비활성 **30분** 후 sweeper 가 메모리에서 폐기 (60초마다 sweep).
+- 페르소나별 진행률은 워커 메모리(`PersonaProcessingStore`)에 보관 — 워커 재시작 시 사라지지만 `process_persona` 가 멱등이라 재호출 시 이미 완료 단계는 스킵.
