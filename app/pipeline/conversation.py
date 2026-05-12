@@ -174,6 +174,12 @@ async def process_message(
             )
     except Exception as exc:  # noqa: BLE001 — 합성 실패는 SSE 에러로 환원
         logger.exception("미디어 합성 실패: session=%s", session.session_id)
+        # TTS 성공 후 Ditto 실패 시 wav 가 남아 디스크에 누적되는 케이스 정리.
+        for stray in (wav_path, mp4_path):
+            try:
+                stray.unlink(missing_ok=True)
+            except (OSError, NameError):
+                pass
         yield {
             "event": "error",
             "data": json.dumps({"reason": f"media_failed: {type(exc).__name__}: {exc}"[:200]}),
