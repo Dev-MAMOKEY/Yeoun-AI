@@ -212,23 +212,34 @@ async def end_session(
     settings: Settings = Depends(get_settings),
 ) -> Envelope[SessionEndData]:
     _registry, store = _service_state(request)
-    session = store.end(session_id)
+    session = store.get(session_id)
     if session is None:
         raise HTTPException(
             status_code=http_status.HTTP_404_NOT_FOUND,
             detail={"code": "NOT_FOUND", "message": f"세션을 찾을 수 없습니다: {session_id}"},
         )
 
-    # speak 디렉토리 통째 정리. persona_dir 안의 한정된 하위만 다루므로 path
-    # traversal 위험 없음 — session_id 는 UUID, persona_id 도 UUID.
-    speak_dir = Path(settings.persona_dir) / str(session.persona_id) / "speak" / str(session_id)
-    if speak_dir.exists():
-        await asyncio.to_thread(shutil.rmtree, speak_dir, ignore_errors=True)
-        logger.info("speak 디렉토리 정리: %s", speak_dir)
+    # 진행 중인 message task 가 있으면 끝날 때까지 대기 — session.lock 을 점유.
+    # store.end 를 락 밖에서 호출하면 진행 task 가 사라진 session 으로 history·미디어 합성을
+    # 계속해 mp4 가 rmtree 직후 재생성되는 race 가 생긴다.
+    async with session.lock:
+        ended = store.end(session_id)
+        if ended is None:
+            # 다른 호출자가 락 대기 중 먼저 pop. 동일 결과로 응답.
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail={"code": "NOT_FOUND", "message": f"세션을 찾을 수 없습니다: {session_id}"},
+            )
 
-    return ok(
-        SessionEndData(
-            session_id=session_id,
-            cleaned_messages=len(session.history),
+        # speak 디렉토리 통째 정리. session_id·persona_id 모두 UUID 라 path traversal 위험 없음.
+        speak_dir = Path(settings.persona_dir) / str(ended.persona_id) / "speak" / str(session_id)
+        if speak_dir.exists():
+            await asyncio.to_thread(shutil.rmtree, speak_dir, ignore_errors=True)
+            logger.info("speak 디렉토리 정리: %s", speak_dir)
+
+        return ok(
+            SessionEndData(
+                session_id=session_id,
+                cleaned_messages=len(ended.history),
+            )
         )
-    )
