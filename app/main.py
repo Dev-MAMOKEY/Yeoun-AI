@@ -142,9 +142,6 @@ GET  /internal/sessions/{id}/messages/{msg}/media?kind=audio|video → wav/mp4 (
 | `error` | `{"reason": "..."}` | 처리 실패 — transcribe·stream·media 단계 중 어디서 |
 
 `ping=15` keep-alive 코멘트 프레임이 합성 hang 동안 송출됨 — 클라이언트·역방향 프록시는 무시.
-
-## 명세서
-- [기능 명세서 (Notion)](https://www.notion.so/35b0e70c795680059393e2999c46e320)
 """
 
 
