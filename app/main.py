@@ -18,6 +18,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from . import __version__
 from .config import get_settings
 from .db.engine import ping as db_ping
+from .models.registry import ModelRegistry
 from .routers import health
 from .schemas.common import fail
 from .sessions.store import SessionStore
@@ -55,15 +56,25 @@ async def lifespan(app: FastAPI):
     await session_store.start()
     app.state.session_store = session_store
 
+    # ModelRegistry — Gemma LLM 부팅 시 로드 (Blackwell AWQ → BF16 폴백).
+    # 더미 모드(GPU_ENABLED=false) 면 즉시 통과.
+    # `app.state.registry` 는 start 전에 먼저 등록해 부분 실패(예: 두 변형 모두 로드
+    # 실패로 status='error') 도 health 가 정확히 'error' 를 반영하게 한다.
+    registry = ModelRegistry(settings)
+    app.state.registry = registry
+    await registry.start()
+
     logger.info(
-        "Yeoun Persona Engine 시작 (version=%s, gpu_enabled=%s, db_mock=%s)",
+        "Yeoun Persona Engine 시작 (version=%s, gpu_enabled=%s, db_mock=%s, llm=%s)",
         __version__,
         settings.gpu_enabled,
         settings.use_db_mock,
+        registry.llm.status if registry.llm else "not_loaded",
     )
     try:
         yield
     finally:
+        await registry.stop()
         await session_store.stop()
         logger.info("Yeoun Persona Engine 종료 중")
 

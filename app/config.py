@@ -48,6 +48,23 @@ class Settings(BaseSettings):
         True,
         description="false이면 모델 로더가 단락 처리되어 더미 출력을 반환 (개발/테스트용).",
     )
+
+    # --- LLM 가중치 경로 (이슈 #6) -----------------------------------------
+    llm_awq_path: str | None = Field(
+        None,
+        description=(
+            "Gemma 4 AWQ INT4 가중치 디렉토리. 지정되면 우선 시도하고, Blackwell 등에서 "
+            "AWQ 커널이 미지원이면 BF16 으로 폴백한다. None 이면 곧장 BF16 로드."
+        ),
+    )
+    llm_bf16_path: str | None = Field(
+        None,
+        description=(
+            "Gemma 4 BF16 가중치 디렉토리 (AWQ 폴백 또는 양자화 미사용 경로). "
+            "GPU_ENABLED=true 인데 두 경로 모두 None 이면 부팅 실패."
+        ),
+    )
+
     log_level: str = Field(
         "INFO",
         description="로그 레벨: DEBUG | INFO | WARNING | ERROR.",

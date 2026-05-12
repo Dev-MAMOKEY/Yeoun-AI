@@ -16,6 +16,7 @@ from .. import __version__
 from ..auth import require_internal_token
 from ..config import Settings, get_settings
 from ..db.engine import ping as db_ping
+from ..models.registry import ModelRegistry
 from ..schemas.common import Envelope, ok
 from ..sessions.store import SessionStore
 
@@ -96,7 +97,10 @@ async def health(
     db_status = await _measure_db_status()
     session_store: SessionStore | None = getattr(request.app.state, "session_store", None)
     sessions = session_store.count() if session_store is not None else 0
-    models = ModelStatus()
+    registry: ModelRegistry | None = getattr(request.app.state, "registry", None)
+    llm_status = registry.llm.status if registry is not None and registry.llm is not None else "not_loaded"
+    # TTS·Ditto 상태는 이슈 #7·#8 머지 시 동일하게 registry 에서 읽어 채운다.
+    models = ModelStatus(llm=llm_status)
 
     # status 도출:
     # - lifespan 미완료 → degraded
