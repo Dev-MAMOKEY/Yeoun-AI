@@ -81,3 +81,7 @@ tifffile
 imageio
 imageio-ffmpeg
 filetype
+
+# FFI — cython 으로 빌드되는 모듈의 런타임 의존.
+cffi
+pycparser
