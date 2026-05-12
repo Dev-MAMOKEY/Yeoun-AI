@@ -8,7 +8,7 @@
 - **TTS**: `k2-fsa/OmniVoice` (zero-shot voice cloning, 상주)
 - **Talking Head**: `antgroup/ditto-talkinghead` (PyTorch 백엔드, subprocess 온디맨드)
 
-Blackwell sm_120 호환을 위해 vendor 가 빌드한 TRT 8.6.1 엔진 대신 PyTorch 백엔드 사용. TRT 재빌드는 이슈 #15.
+Blackwell sm_120 호환을 위해 vendor 가 빌드한 TRT 8.6.1 엔진 대신 PyTorch 백엔드 사용. TRT 재빌드는 별도 환경.
 
 ## 요구사항
 
@@ -96,8 +96,24 @@ sudo netfilter-persistent save
 
 > **방화벽 미설정 시 같은 LAN 의 모든 기기가 `http://<이 머신 LAN IP>:8000` 에 접근 가능합니다.** 반드시 위 정책을 적용한 뒤 운영하십시오.
 
-### 모델 가중치 배치
-모델은 이미지에 포함되지 않고 named volume `yeoun-models` 에 마운트된다. 초기 1회 `scripts/download_models.py` (이슈 #15) 로 가중치를 받아 `/models` 에 배치한다.
+### 모델 가중치·vendor 자원 배치
+Ditto-TalkingHead 의 소스 코드 + checkpoints(~6.5GB) 는 **Dockerfile 빌드 단계에서 이미지 안에 직접 clone** 한다 — 운영자가 호스트에서 별도 git clone 할 필요 없음. Gemma 4·OmniVoice 가중치는 첫 부팅 때 `transformers.from_pretrained` 가 HF 에서 자동 다운로드해 `HF_HOME` (named volume `yeoun-models` 하위) 에 캐시한다.
+
+운영자 1회 셋업:
+
+```bash
+# 1) (선택) Gemma 4 gated 라이선스 동의 후 token 등록 — public 캐시 hit 시 불필요.
+export HF_TOKEN=hf_xxx
+
+# 2) 이미지 빌드 — Ditto vendor + checkpoints 가 함께 박혀 ~10-20 분 소요.
+docker compose build
+
+# 3) 기동 — 첫 부팅 시 Gemma·OmniVoice 가중치 (~10GB) 가 HF cache 볼륨에 채워진다.
+docker compose up -d
+docker compose logs -f yeoun-engine   # "ModelRegistry 시작" 로그 확인
+```
+
+이후 HF cache 는 named volume `yeoun-models` 에 영속화되어 컨테이너 재시작 시 재다운로드 안 함.
 
 ## 테스트
 
@@ -119,7 +135,7 @@ pytest --cov=app --cov-report=term-missing
 - 라우터 통합: 헬스 (`test_health.py`), 페르소나 생성·삭제 (`test_persona_creation.py`·`test_persona_deletion.py`), 세션 (`test_sessions_flow.py`), 미디어 Range (`test_media_range.py`)
 - E2E mock 흐름: `test_integration_flow.py` — 페르소나 생성 → 세션 start/end → 삭제 한 시퀀스
 
-실 GPU 검증은 별도(이슈 #15 가이드).
+실 GPU 검증은 별도(가이드).
 
 ## 환경 변수
 

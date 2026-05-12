@@ -1,4 +1,4 @@
-"""대화 세션 라우터 (이슈 #10, 명세서 흐름 B).
+"""대화 세션 라우터 (명세서 흐름 B).
 
 엔드포인트:
 - POST `/internal/sessions/start` → sessionId 발급

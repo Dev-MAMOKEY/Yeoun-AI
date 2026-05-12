@@ -1,4 +1,4 @@
-"""미디어 스트리밍 라우터 + Range helper 스모크 (이슈 #11).
+"""미디어 스트리밍 라우터 + Range helper 스모크.
 
 `parse_range` / `safe_resolve` 단위 + `/internal/personas/{id}/idle-clips/{idx}` ·
 `/internal/sessions/{id}/messages/{msg}/media` 통합. PERSONA_DIR 은 tmp_path 로

@@ -1,4 +1,4 @@
-"""세션 시작/메시지/종료 흐름 (이슈 #10) 더미 모드 스모크 테스트.
+"""세션 시작/메시지/종료 흐름 더미 모드 스모크 테스트.
 
 GPU_ENABLED=false + USE_DB_MOCK=true 에서 시스템 프롬프트 조립, conversation.process_message
 정상/위기 분기, POST /start·/end 라우터를 검증한다. SSE 응답 자체(`/message`)는 라이브

@@ -68,8 +68,8 @@ async def update_persona_status(persona_id: UUID, status: str) -> None:
 async def delete_persona_tx(persona_id: UUID) -> None:
     """페르소나 + CASCADE 관계 행을 한 트랜잭션으로 삭제.
 
-    파일시스템 자원 정리는 이슈 #12 의 `storage/filesystem.py` 와 함께
-    한 트랜잭션으로 묶일 예정 (이슈 #4 범위는 DB 측 시그니처만).
+    파일시스템 자원 정리는 의 `storage/filesystem.py` 와 함께
+    한 트랜잭션으로 묶일 예정 (범위는 DB 측 시그니처만).
     """
     settings = get_settings()
     if settings.use_db_mock:

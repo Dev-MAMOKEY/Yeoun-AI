@@ -3,7 +3,7 @@
 - 부팅 시 가중치를 GPU 에 적재해 상주한다 (Qwen3-0.6B 베이스 + TTS 모듈, ~2GB).
 - `generate(text, ref_audio, ref_text)` API 로 24kHz wav 를 합성한다.
 - `GPU_ENABLED=false` 모드는 무음 wav (1초 0배열) 를 출력 경로에 쓰고 반환.
-- GPU 직렬화는 호출자(#9·#10) 가 `ModelRegistry.gpu_semaphore` 로 보호.
+- GPU 직렬화는 호출자 가 `ModelRegistry.gpu_semaphore` 로 보호.
 """
 
 from __future__ import annotations

@@ -27,7 +27,10 @@ services:
       # host 방화벽(DOCKER-USER 체인)으로 차단한다.
       - "0.0.0.0:8000:8000"
     volumes:
-      # 모델 가중치 (~15GB). scripts/download_models.py (#15) 가 채운다.
+      # HF 모델 캐시 (~10GB) — transformers.from_pretrained 가 첫 호출 시 자동
+      # 다운로드. `HF_HOME=/models/hf-cache` 가 이 볼륨 하위를 가리켜 재시작 시
+      # 재다운로드 방지. Ditto vendor + checkpoints 는 Dockerfile 빌드 단계에서
+      # 이미지에 직접 박힘 (호스트 마운트 불필요).
       - yeoun-models:/models
       # 영구 페르소나 자원 (사진·음성·voice_ref·idle 클립).
       - yeoun-persona:/var/persona

@@ -1,4 +1,4 @@
-"""DELETE /internal/personas/{id} + safe_rmtree 스모크 (이슈 #12)."""
+"""DELETE /internal/personas/{id} + safe_rmtree 스모크."""
 
 import asyncio
 import shutil

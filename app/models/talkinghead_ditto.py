@@ -8,7 +8,7 @@ HF README(<https://huggingface.co/digital-avatar/ditto-talkinghead>) 패턴 따�
 본 모듈은 위 CLI 를 `asyncio.create_subprocess_exec` 으로 호출한다.
 - 매 호출이 새 프로세스 → GPU 메모리 자동 회수 (명세 "온디맨드 로드/언로드" 자연 충족).
 - `GPU_ENABLED=false` 모드는 placeholder bytes 를 output_path 에 쓰고 반환.
-- GPU 직렬화는 호출자(#9·#10) 가 `ModelRegistry.ditto_semaphore` 로 보호 (Gemma/TTS 와 분리한 락).
+- GPU 직렬화는 호출자 가 `ModelRegistry.ditto_semaphore` 로 보호 (Gemma/TTS 와 분리한 락).
 """
 
 from __future__ import annotations
@@ -99,13 +99,13 @@ class DittoTalkingHead:
 
         Ditto repo 의 `inference.py` CLI 를 subprocess 로 호출한다. 매 호출이
         독립 프로세스라 종료 시 GPU 메모리가 자동 회수된다 (명세 "온디맨드
-        로드/언로드" 의도와 일치). 호출자(#9·#10) 는 `ModelRegistry.ditto_semaphore`
+        로드/언로드" 의도와 일치). 호출자 는 `ModelRegistry.ditto_semaphore`
         로 한 번에 1 건 렌더만 허용해야 한다.
 
         **경로 인자 검증 책임은 호출자**: `image_path` / `audio_path` / `output_path`
         는 그대로 subprocess argv 로 전달된다. 외부 입력(예: Spring 프록시 경유 사용자
         업로드 경로) 을 검증 없이 넘기면 path traversal 위험이 있으므로, 라우터
-        레이어(#9·#10) 에서 `Path.resolve().is_relative_to(persona_dir)` 등으로
+        레이어 에서 `Path.resolve().is_relative_to(persona_dir)` 등으로
         반드시 allowlist 화한 뒤 전달할 것.
         """
         target = Path(output_path)

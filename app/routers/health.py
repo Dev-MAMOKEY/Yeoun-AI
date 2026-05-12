@@ -1,8 +1,7 @@
 """`GET /internal/health` — 라이브니스 / 레디니스 신호.
 
-아직 구현되지 않은 서브시스템(모델 레지스트리, DB 리포지토리, 세션 스토어)
-관련 필드는 안전한 placeholder를 반환한다. 이슈 #4, #6, #7, #8이 머지되면
-실제 값으로 전환된다.
+모델 로드 상태·활성 세션 수·GPU 활성 여부·DB 연결 상태를 반환한다.
+컨테이너 HEALTHCHECK 와 운영 대시보드에서 사용.
 """
 
 import asyncio
@@ -39,17 +38,17 @@ router = APIRouter(prefix="/internal", tags=["health"])
 class ModelStatus(BaseModel):
     llm: str = Field(
         "not_loaded",
-        description="Gemma 4 LLM 로더 상태 (placeholder, 이슈 #6 이후 실값).",
+        description="Gemma 4 LLM 로더 상태.",
         examples=["not_loaded", "loaded", "loading", "error"],
     )
     tts: str = Field(
         "not_loaded",
-        description="OmniVoice TTS 로더 상태 (placeholder, 이슈 #7 이후 실값).",
+        description="OmniVoice TTS 로더 상태.",
         examples=["not_loaded", "loaded", "loading", "error"],
     )
     ditto: str = Field(
         "not_loaded",
-        description="Ditto-TalkingHead 로더 상태 (placeholder, 이슈 #8 이후 실값; 온디맨드 로드라 평시 not_loaded).",
+        description="Ditto-TalkingHead 로더 상태. 매 렌더 subprocess 라 `loaded` 는 경로 검증 통과·호출 가능 의미.",
         examples=["not_loaded", "loaded", "loading", "error"],
     )
 
@@ -62,7 +61,7 @@ class HealthData(BaseModel):
     version: str = Field(..., description="Yeoun Persona Engine 버전.", examples=["0.1.0"])
     uptime_seconds: float = Field(..., description="부팅 후 경과 시간(초).")
     models: ModelStatus
-    sessions: int = Field(..., description="현재 활성 대화 세션 수 (이슈 #4/#10 이후 실값).")
+    sessions: int = Field(..., description="현재 활성 대화 세션 수.")
     gpu_enabled: bool = Field(..., description="`GPU_ENABLED` 설정. false이면 모델 로더가 더미 동작.")
     db: str = Field(
         ...,

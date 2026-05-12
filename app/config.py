@@ -49,7 +49,7 @@ class Settings(BaseSettings):
         description="false이면 모델 로더가 단락 처리되어 더미 출력을 반환 (개발/테스트용).",
     )
 
-    # --- LLM 가중치 경로 (이슈 #6) -----------------------------------------
+    # --- LLM 가중치 경로 --------------------------------------------------
     llm_bf16_path: str | None = Field(
         None,
         description=(
@@ -58,7 +58,7 @@ class Settings(BaseSettings):
         ),
     )
 
-    # --- TTS 가중치 경로 (이슈 #7) -----------------------------------------
+    # --- TTS 가중치 경로 --------------------------------------------------
     tts_model_path: str | None = Field(
         None,
         description=(
@@ -67,12 +67,9 @@ class Settings(BaseSettings):
         ),
     )
 
-    # --- Ditto-TalkingHead 경로 (이슈 #8) ----------------------------------
-    # README 패턴 (https://huggingface.co/digital-avatar/ditto-talkinghead):
-    #   git clone github.com/antgroup/ditto-talkinghead → vendor_dir
-    #   git clone hf.co/digital-avatar/ditto-talkinghead vendor_dir/checkpoints → 가중치
-    # 추론은 `python <vendor_dir>/inference.py --data_root ... --cfg_pkl ... \
-    #         --audio_path ... --source_path ... --output_path ...` CLI 를 subprocess 로 호출.
+    # --- Ditto-TalkingHead 경로 ---------------------------------------------
+    # Dockerfile 빌드 단계에서 vendor 소스 + checkpoints 를 `/app/vendor/ditto-talkinghead`
+    # 로 직접 clone 한다. 추론은 그 안의 `inference.py` CLI 를 subprocess 로 호출.
     ditto_vendor_dir: str | None = Field(
         None,
         description=(
@@ -82,9 +79,8 @@ class Settings(BaseSettings):
     ditto_data_root: str | None = Field(
         None,
         description=(
-            "TRT/PyTorch 모델 디렉토리. README 디폴트는 `<vendor>/checkpoints/ditto_trt_Ampere_Plus`. "
-            "Blackwell(sm_120) 등 Ampere_Plus 미지원 환경에선 `<vendor>/checkpoints/ditto_pytorch` "
-            "로 변경하거나 #15 의 ONNX→TRT 재변환 스크립트를 활용."
+            "TRT/PyTorch 모델 디렉토리. 기본은 `<vendor>/checkpoints/ditto_pytorch` "
+            "(Blackwell 호환). Ampere/Ada 인스턴스에선 `ditto_trt_Ampere_Plus` 로 변경 가능."
         ),
     )
     ditto_cfg_pkl: str | None = Field(

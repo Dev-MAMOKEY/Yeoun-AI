@@ -6,7 +6,7 @@
   yield (단일 워커 + asyncio 단일 루프 전제).
 - `GPU_ENABLED=false` 모드는 모든 호출을 더미 텍스트/토큰 반환으로 단락 처리.
 
-시스템 프롬프트 조립과 conversation 파이프라인은 #10 에서 본 클래스를 호출한다.
+시스템 프롬프트 조립과 conversation 파이프라인이 본 클래스를 호출한다.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ logger = logging.getLogger("yeoun")
 _SAMPLING = {"temperature": 1.0, "top_p": 0.95, "top_k": 64}
 
 # 명세서 결정 — KV 캐시 절약 위해 컨텍스트 8K 로 제한 (모델 자체는 256K 까지 지원).
-# 시스템 프롬프트 + 히스토리 + 현재 입력 합계. 호출자(#10) 가 히스토리를 자른다.
+# 시스템 프롬프트 + 히스토리 + 현재 입력 합계. 호출자 가 히스토리를 자른다.
 _MAX_CONTEXT_TOKENS = 8192
 # 한 응답이 생성하는 최대 토큰 수 — 한국어 단문 응답 위주라 1024 면 충분.
 _MAX_RESPONSE_TOKENS = 1024
@@ -209,7 +209,7 @@ class GemmaLLM:
 
         Args:
             system_prompt: 시스템 프롬프트 본문. 페르소나 정체성·인터뷰 답변
-                10 개·응답 정책이 합쳐진 문자열 (#10 에서 조립).
+                10 개·응답 정책이 합쳐진 문자열.
             history: 텍스트 메시지 히스토리. 각 항목 `{"role": "user"|"assistant",
                 "text": str}` 형식.
             user_audio_path: 현재 사용자 음성 파일 경로.
@@ -292,7 +292,7 @@ class GemmaLLM:
             if thread.is_alive():
                 # 5 초 타임아웃 후에도 살아있으면 daemon 이라도 GPU 점유 우려.
                 # 후속 stream_response 호출에서 같은 GPU 자원이 겹칠 수 있으므로
-                # 로그로 분명히 남긴다 — `gpu_semaphore` 직렬화는 호출자(#10) 책임.
+                # 로그로 분명히 남긴다 — `gpu_semaphore` 직렬화는 호출자 책임.
                 logger.warning(
                     "Gemma generate 스레드가 join 타임아웃 후에도 alive — GPU 점유 가능"
                 )

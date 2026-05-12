@@ -1,10 +1,10 @@
-"""페르소나 생성·조회·삭제 라우터 (이슈 #9 + #12).
+"""페르소나 생성·조회·삭제 라우터 (+ #12).
 
 엔드포인트:
 - POST `/internal/personas/{id}/process` → 202 + BackgroundTask
 - GET `/internal/personas/{id}/status`
 - GET `/internal/personas/{id}/idle-clips`
-- DELETE `/internal/personas/{id}` (이슈 #12)
+- DELETE `/internal/personas/{id}`
 """
 
 import logging
@@ -149,7 +149,7 @@ async def get_status(
     summary="페르소나 idle 클립 메타 조회",
     description=(
         "`status='ready'` 이후 호출. `/var/persona/{id}/idle/{n}.mp4` 의 메타(인덱스·경로·크기)를 반환. "
-        "실제 mp4 스트리밍은 이슈 #11 의 미디어 라우터가 담당."
+        "실제 mp4 스트리밍은 의 미디어 라우터가 담당."
     ),
     dependencies=[Depends(require_internal_token)],
     responses={
