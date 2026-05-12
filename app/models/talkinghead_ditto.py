@@ -87,7 +87,7 @@ class DittoTalkingHead:
     def status(self) -> DittoStatus:
         return self._status
 
-    # --- 렌더 (더미만 — 실 호출 분기는 다음 커밋) -------------------------
+    # --- 렌더 ---------------------------------------------------------------
     async def render_speak(
         self,
         *,
@@ -102,8 +102,53 @@ class DittoTalkingHead:
             return target
         raise NotImplementedError("Ditto 실 렌더 분기는 다음 커밋에서 구현.")
 
+    async def render_idle(
+        self,
+        *,
+        image_path: str | Path,
+        output_path: str | Path,
+        duration_seconds: float = 5.0,
+    ) -> Path:
+        """무음 talking head 영상 (idle 클립).
+
+        지정 길이의 무음 wav 를 임시 생성한 뒤 `render_speak` 에 위임한다.
+        입 모양은 거의 정지 — 명세서 "Idle talking head 영상" 의도와 일치.
+        """
+        import tempfile
+
+        target = Path(output_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        fd, silence_name = tempfile.mkstemp(suffix=".wav", prefix="ditto_idle_")
+        import os
+
+        os.close(fd)
+        silence_path = Path(silence_name)
+        try:
+            await asyncio.to_thread(_write_silence_wav, silence_path, duration_seconds)
+            return await self.render_speak(
+                image_path=image_path,
+                audio_path=silence_path,
+                output_path=target,
+            )
+        finally:
+            try:
+                silence_path.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("임시 무음 wav 삭제 실패: %s", silence_path)
+
 
 def _write_dummy_mp4(target: Path) -> None:
     """더미 모드용 placeholder mp4 바이트 작성."""
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(_DUMMY_MP4_BYTES)
+
+
+def _write_silence_wav(target: Path, duration_seconds: float) -> None:
+    """`render_idle` 보조 helper — N초 무음 wav 를 16kHz float32 zeros 로 작성."""
+    import numpy as np
+    import soundfile as sf
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    samples = int(_SILENCE_SAMPLE_RATE * max(0.0, duration_seconds))
+    sf.write(str(target), np.zeros(samples, dtype="float32"), _SILENCE_SAMPLE_RATE)
