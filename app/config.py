@@ -58,6 +58,15 @@ class Settings(BaseSettings):
         ),
     )
 
+    # --- TTS 가중치 경로 (이슈 #7) -----------------------------------------
+    tts_model_path: str | None = Field(
+        None,
+        description=(
+            "OmniVoice TTS 가중치 디렉토리 또는 HF repo ID (예: `k2-fsa/OmniVoice`). "
+            "GPU_ENABLED=true 인데 None 이면 TTS 로드 실패."
+        ),
+    )
+
     log_level: str = Field(
         "INFO",
         description="로그 레벨: DEBUG | INFO | WARNING | ERROR.",
