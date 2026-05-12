@@ -56,10 +56,11 @@ class IdleClipMeta(BaseModel):
     path: str = Field(
         ...,
         description=(
-            "엔진 컨테이너 안 절대 경로(`/var/persona/{id}/idle/{n}.mp4`). "
-            "Spring 이 미디어 스트리밍 라우터(#11) 로 가져갈 때 참조."
+            "PERSONA_DIR 기준 상대 경로(`{persona_id}/idle/{n}.mp4`). "
+            "내부 절대경로 노출을 피하기 위해 컨테이너 마운트와 무관한 상대 표현 사용. "
+            "실제 mp4 스트리밍은 이슈 #11 의 미디어 라우터가 별도 URL 로 제공."
         ),
-        examples=["/var/persona/00000000-0000-0000-0000-000000000001/idle/0.mp4"],
+        examples=["00000000-0000-0000-0000-000000000001/idle/0.mp4"],
     )
     size_bytes: int = Field(..., ge=0, description="파일 크기(바이트).")
 

@@ -176,8 +176,10 @@ async def get_idle_clips(
                 idx = int(p.stem)
             except ValueError:
                 continue
+            # 내부 절대경로 노출을 피하기 위해 PERSONA_DIR 기준 상대 경로로 변환.
+            relative = f"{persona_id}/idle/{p.name}"
             clips.append(
-                IdleClipMeta(index=idx, path=str(p), size_bytes=p.stat().st_size)
+                IdleClipMeta(index=idx, path=relative, size_bytes=p.stat().st_size)
             )
 
     return ok(IdleClipsData(persona_id=persona_id, clips=clips))
