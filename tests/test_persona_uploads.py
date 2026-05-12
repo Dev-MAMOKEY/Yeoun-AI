@@ -79,6 +79,7 @@ def test_upload_voice_200_writes_file(upload_client):
     _run(repository._reset_mock())
     _run(repository.mock_seed_persona(_make_persona(pid)))
 
+    # WAV 파일 RIFF header 로 시작 — magic byte 검사 통과.
     payload = b"RIFF" + b"\x00" * 100 + b"WAVE"
     res = client.post(
         f"/internal/personas/{pid}/voice",
@@ -126,8 +127,9 @@ def test_upload_413_when_too_large(upload_client):
     _run(repository._reset_mock())
     _run(repository.mock_seed_persona(_make_persona(pid)))
 
-    # fixture 에서 MAX_UPLOAD_BYTES=1024 — 2KiB 페이로드는 초과.
-    payload = b"\x00" * 2048
+    # fixture 에서 MAX_UPLOAD_BYTES=1024 — 2KiB 페이로드는 초과. JPEG 매직 prefix 로
+    # magic byte 검사는 통과시키고 크기에서 차단되도록 한다.
+    payload = b"\xff\xd8\xff\xe0" + b"\x00" * 2048
     res = client.post(
         f"/internal/personas/{pid}/photo",
         files={"file": ("big.jpg", payload, "image/jpeg")},
@@ -146,6 +148,22 @@ def test_upload_415_when_unsupported_type(upload_client):
     res = client.post(
         f"/internal/personas/{pid}/photo",
         files={"file": ("not-image.txt", b"hello", "text/plain")},
+        headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+    )
+    assert res.status_code == 415
+    assert res.json()["error"]["code"] == "UNSUPPORTED_MEDIA_TYPE"
+
+
+def test_upload_415_when_magic_byte_mismatch(upload_client):
+    """content-type 은 image/jpeg 라 호출했지만 실제 바이트는 텍스트 — 매직 가드가 차단."""
+    client, _ = upload_client
+    pid = uuid4()
+    _run(repository._reset_mock())
+    _run(repository.mock_seed_persona(_make_persona(pid)))
+
+    res = client.post(
+        f"/internal/personas/{pid}/photo",
+        files={"file": ("forged.jpg", b"%PDF-1.4 not really an image", "image/jpeg")},
         headers={"Authorization": f"Bearer {TEST_TOKEN}"},
     )
     assert res.status_code == 415
