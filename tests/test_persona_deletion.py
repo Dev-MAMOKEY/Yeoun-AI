@@ -128,6 +128,26 @@ def test_delete_persona_no_fs_dir_still_succeeds(delete_client):
     assert _run(repository.get_persona(pid)) is None
 
 
+def test_delete_persona_processing_409(delete_client):
+    """processing 상태 페르소나는 삭제 차단 — race 방지."""
+    client, _ = delete_client
+    pid = uuid4()
+    _run(repository._reset_mock())
+    rec = _make_persona(pid)
+    # status 만 processing 으로 덮어쓰기.
+    rec = rec.model_copy(update={"status": "processing"})
+    _run(repository.mock_seed_persona(rec))
+
+    res = client.delete(
+        f"/internal/personas/{pid}",
+        headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+    )
+    assert res.status_code == 409
+    assert res.json()["error"]["code"] == "CONFLICT"
+    # DB 행 보존
+    assert _run(repository.get_persona(pid)) is not None
+
+
 def test_delete_persona_fs_failure_leaves_db(delete_client, monkeypatch):
     """`safe_rmtree` 가 OSError 면 500 + DB 행 그대로 — 고아 없음 보장."""
     client, persona_dir = delete_client
