@@ -99,6 +99,29 @@ def _pick_voice_file(persona_dir: str, persona_id: UUID) -> Path:
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
+async def _transcribe_voice(
+    voice_path: Path,
+    ref_text_path: Path,
+    registry,
+) -> str:
+    """Gemma audio-in 으로 voice 파일을 전사하고 `ref_text.txt` 에 저장.
+
+    멱등성: ref_text_path 가 이미 존재하고 비어 있지 않으면 그 내용을 그대로
+    반환해 GPU 호출을 스킵한다. GPU 진입은 `gpu_semaphore` 로 직렬화.
+    """
+    if ref_text_path.exists() and ref_text_path.stat().st_size > 0:
+        logger.info("ref_text 멱등 스킵: %s", ref_text_path)
+        return ref_text_path.read_text(encoding="utf-8")
+
+    async with registry.gpu_semaphore:
+        text = await registry.llm.transcribe(voice_path)
+
+    ref_text_path.parent.mkdir(parents=True, exist_ok=True)
+    ref_text_path.write_text(text, encoding="utf-8")
+    logger.info("ref_text 저장: %s (%d 자)", ref_text_path, len(text))
+    return text
+
+
 async def process_persona(
     persona_id: UUID,
     *,
