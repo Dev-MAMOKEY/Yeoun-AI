@@ -98,9 +98,25 @@ sudo netfilter-persistent save
 
 ## 테스트
 
+GPU 없는 개발 머신에서도 mock 기반 흐름이 모두 검증되도록 pytest 스위트 + 커버리지를 둔다.
+
 ```bash
+# venv 활성화 후
+pip install -r requirements-dev.txt
+
+# 전체 스위트 — GPU_ENABLED=false / USE_DB_MOCK=true 자동 설정
 pytest
+
+# 커버리지 리포트 (라우터·세션·세이프티)
+pytest --cov=app --cov-report=term-missing
 ```
+
+스위트 구성:
+- 단위: 모델 더미 로더 (`test_llm_gemma_mock.py`·`test_omnivoice_mock.py`·`test_ditto_mock.py`), 세이프티 가드 (`test_safety_guard.py`), 세션 스토어 (`test_session_store.py`)
+- 라우터 통합: 헬스 (`test_health.py`), 페르소나 생성·삭제 (`test_persona_creation.py`·`test_persona_deletion.py`), 세션 (`test_sessions_flow.py`), 미디어 Range (`test_media_range.py`)
+- E2E mock 흐름: `test_integration_flow.py` — 페르소나 생성 → 세션 start/end → 삭제 한 시퀀스
+
+실 GPU 검증은 별도(이슈 #15 가이드).
 
 ## 환경 변수
 
