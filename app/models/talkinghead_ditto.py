@@ -127,21 +127,32 @@ class DittoTalkingHead:
         ]
 
         logger.info("Ditto inference 시작: %s", target)
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            cwd=str(vendor),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            # 운영자가 stderr 마지막 부분을 보고 빠르게 진단할 수 있게 잘라 전달.
-            stderr_tail = stderr.decode(errors="replace")[-1000:]
-            raise RuntimeError(
-                f"Ditto inference 실패 (rc={proc.returncode}): {stderr_tail}"
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=str(vendor),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
-        if not target.exists():
-            raise RuntimeError(f"Ditto inference 가 output 을 생성하지 않음: {target}")
+            stdout, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                # 운영자가 stderr 마지막 부분을 보고 빠르게 진단할 수 있게 잘라 전달.
+                stderr_tail = stderr.decode(errors="replace")[-1000:]
+                raise RuntimeError(
+                    f"Ditto inference 실패 (rc={proc.returncode}): {stderr_tail}"
+                )
+            if not target.exists():
+                raise RuntimeError(f"Ditto inference 가 output 을 생성하지 않음: {target}")
+        except BaseException:
+            # 실패·취소 시 부분 mp4 가 남아 다음 단계가 성공 산출물로 오인하는 일이
+            # 없도록 정리. inference.py 는 `<output>.tmp.mp4` 임시 파일로 렌더 후
+            # ffmpeg muxing 으로 최종 target 을 만드는 흐름이라 양쪽 모두 정리한다.
+            for stray in (target, Path(str(target) + ".tmp.mp4")):
+                try:
+                    stray.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning("실패 산출물 정리 중 OSError: %s", stray)
+            raise
         logger.info("Ditto inference 완료: %s", target)
         return target
 
