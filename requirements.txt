@@ -30,9 +30,11 @@ numpy>=1.26
 # --- ML / GPU stack (Blackwell needs CUDA 12.8 wheels) -----------------------
 torch>=2.7.0
 torchaudio>=2.7.0
+torchvision>=0.20.0
 transformers>=4.50.0
 accelerate>=1.2.0
 safetensors>=0.4.5
+pillow>=10.0.0
 
 # --- Quantization ------------------------------------------------------------
 # AWQ INT4. Blackwell (sm_120) kernel coverage may be partial; loader falls
