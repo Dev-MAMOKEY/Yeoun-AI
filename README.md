@@ -97,29 +97,23 @@ sudo netfilter-persistent save
 > **방화벽 미설정 시 같은 LAN 의 모든 기기가 `http://<이 머신 LAN IP>:8000` 에 접근 가능합니다.** 반드시 위 정책을 적용한 뒤 운영하십시오.
 
 ### 모델 가중치·vendor 자원 배치
-모델 가중치는 이미지에 포함되지 않고 `transformers.from_pretrained` 가 첫 호출 시점에 HF 에서 자동 다운로드해 `HF_HOME` (named volume `yeoun-models` 하위) 에 캐시한다. Ditto-TalkingHead 만 소스 코드와 가중치가 vendor 디렉토리에 직접 위치한다.
+Ditto-TalkingHead 의 소스 코드 + checkpoints(~6.5GB) 는 **Dockerfile 빌드 단계에서 이미지 안에 직접 clone** 한다 — 운영자가 호스트에서 별도 git clone 할 필요 없음. Gemma 4·OmniVoice 가중치는 첫 부팅 때 `transformers.from_pretrained` 가 HF 에서 자동 다운로드해 `HF_HOME` (named volume `yeoun-models` 하위) 에 캐시한다.
 
 운영자 1회 셋업:
 
 ```bash
-# 1) Ditto vendor 소스
-git clone https://github.com/antgroup/ditto-talkinghead vendor/ditto-talkinghead
-
-# 2) Ditto checkpoints (~6.5GB) — HF 의 LFS 자원
-cd vendor/ditto-talkinghead
-git clone https://huggingface.co/digital-avatar/ditto-talkinghead checkpoints
-cd ../..
-
-# 3) Gemma 4 gated 라이선스 동의 후 token 환경 변수에 등록 (선택)
-#    transformers 가 자동 인식. token 없이도 public 캐시 hit 시 동작.
+# 1) (선택) Gemma 4 gated 라이선스 동의 후 token 등록 — public 캐시 hit 시 불필요.
 export HF_TOKEN=hf_xxx
 
-# 4) 첫 부팅 시 Gemma·OmniVoice 가중치 다운로드 (~10GB) — uvicorn 기동 시 자동
+# 2) 이미지 빌드 — Ditto vendor + checkpoints 가 함께 박혀 ~10-20 분 소요.
+docker compose build
+
+# 3) 기동 — 첫 부팅 시 Gemma·OmniVoice 가중치 (~10GB) 가 HF cache 볼륨에 채워진다.
 docker compose up -d
 docker compose logs -f yeoun-engine   # "ModelRegistry 시작" 로그 확인
 ```
 
-이후 가중치는 named volume 에 영속화되어 컨테이너 재시작 시 재다운로드 안 함.
+이후 HF cache 는 named volume `yeoun-models` 에 영속화되어 컨테이너 재시작 시 재다운로드 안 함.
 
 ## 테스트
 
