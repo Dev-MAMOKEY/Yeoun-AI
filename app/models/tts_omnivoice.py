@@ -52,8 +52,27 @@ class OmniVoiceTTS:
                 "TTS_MODEL_PATH 가 비어 있습니다. 가중치 디렉토리 또는 HF repo ID 를 "
                 "설정하거나 GPU_ENABLED=false 로 더미 모드를 사용하십시오."
             )
-        # 실 로드는 다음 커밋에서 채운다.
-        raise NotImplementedError("OmniVoice 실 로드 분기는 다음 커밋에서 구현.")
+
+        try:
+            await asyncio.to_thread(self._load_model, self._model_path)
+            self._status = "loaded"
+        except Exception:
+            logger.exception("OmniVoice 로드 실패")
+            self._status = "error"
+            raise
+
+    def _load_model(self, path: str) -> None:
+        """동기 로드 — `asyncio.to_thread` 안에서 호출."""
+        import torch
+        from omnivoice import OmniVoice  # type: ignore[import-not-found]
+
+        logger.info("OmniVoice 로드 시작: %s", path)
+        self._model = OmniVoice.from_pretrained(
+            path,
+            device_map="cuda:0",
+            dtype=torch.float16,
+        )
+        logger.info("OmniVoice 로드 완료")
 
     async def unload(self) -> None:
         """모델 자원 해제. 더미 모드면 no-op."""
@@ -101,8 +120,33 @@ class OmniVoiceTTS:
 
         if self._model is None:
             raise RuntimeError("OmniVoiceTTS 가 로드되지 않았습니다.")
-        # 실 합성 분기는 다음 커밋에서 구현.
-        raise NotImplementedError("OmniVoice 실 합성 분기는 다음 커밋에서 구현.")
+
+        return await asyncio.to_thread(
+            self._run_synthesize, text, str(ref_audio_path), ref_text, target
+        )
+
+    def _run_synthesize(
+        self,
+        text: str,
+        ref_audio_path: str,
+        ref_text: str,
+        target: Path,
+    ) -> Path:
+        """동기 합성 — `asyncio.to_thread` 안에서 호출.
+
+        `OmniVoice.generate` 는 `list[np.ndarray]` 를 반환하므로 첫 항목을 24kHz
+        wav 로 직렬화한다. ref embedding 캐시는 OmniVoice 내부 API 가 노출되면
+        후속 최적화 영역 — 현재는 매 호출 ref_audio/ref_text 그대로 전달.
+        """
+        import soundfile as sf  # type: ignore[import-not-found]
+
+        audio = self._model.generate(  # type: ignore[union-attr]
+            text=text,
+            ref_audio=ref_audio_path,
+            ref_text=ref_text,
+        )
+        sf.write(str(target), audio[0], _SAMPLE_RATE)
+        return target
 
 
 def _write_silent_wav(target: Path) -> None:
