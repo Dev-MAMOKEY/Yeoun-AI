@@ -101,6 +101,12 @@ class DittoTalkingHead:
         독립 프로세스라 종료 시 GPU 메모리가 자동 회수된다 (명세 "온디맨드
         로드/언로드" 의도와 일치). 호출자(#9·#10) 는 `ModelRegistry.ditto_semaphore`
         로 한 번에 1 건 렌더만 허용해야 한다.
+
+        **경로 인자 검증 책임은 호출자**: `image_path` / `audio_path` / `output_path`
+        는 그대로 subprocess argv 로 전달된다. 외부 입력(예: Spring 프록시 경유 사용자
+        업로드 경로) 을 검증 없이 넘기면 path traversal 위험이 있으므로, 라우터
+        레이어(#9·#10) 에서 `Path.resolve().is_relative_to(persona_dir)` 등으로
+        반드시 allowlist 화한 뒤 전달할 것.
         """
         target = Path(output_path)
         target.parent.mkdir(parents=True, exist_ok=True)
