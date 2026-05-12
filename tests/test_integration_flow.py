@@ -90,8 +90,11 @@ def test_e2e_persona_session_delete_flow(e2e_client):
     res = client.get(f"/internal/personas/{pid}/status", headers=auth)
     assert res.status_code == 200
     data = res.json()["data"]
-    assert data["status"] == "ready"
-    assert data["step"] == "ready"
+    assert data["status"] == "ready", (
+        f"BackgroundTask 완료 후 status 불일치: status={data['status']!r}, "
+        f"step={data.get('step')!r}, error_reason={data.get('error_reason')!r}"
+    )
+    assert data["step"] == "ready", f"step 불일치: {data.get('step')!r}"
 
     # 4. idle-clips
     res = client.get(f"/internal/personas/{pid}/idle-clips", headers=auth)
