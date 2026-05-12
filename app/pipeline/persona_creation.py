@@ -201,7 +201,49 @@ async def process_persona(
     호출자는 FastAPI `BackgroundTasks` 로 즉시 202 응답 후 비동기 실행한다.
     예외는 본 함수가 잡아 status='failed' 로 마감 — 호출자는 별도 처리 불필요.
 
-    멱등성: 이미 산출물이 존재하는 단계는 스킵. 워커 재시작 후 재호출 시 유용.
+    멱등성: 각 단계 helper 가 이미 존재하는 산출물을 스킵. 워커 재시작 후 재호출
+    시에도 안전.
     """
-    # 이후 단계(전사·추출·렌더·status 갱신) 는 후속 커밋에서 점진적으로 추가.
-    await store.set_step(persona_id, ProcessingStep.PENDING)
+    # 순환 import 회피용 지연 import.
+    from ..db import repository
+
+    root = _persona_root(persona_dir, persona_id)
+    voice_ref_dir = root / "voice_ref"
+    idle_dir = root / "idle"
+    ref_text_path = voice_ref_dir / "ref_text.txt"
+
+    try:
+        await store.set_step(persona_id, ProcessingStep.PENDING)
+        await repository.update_persona_status(persona_id, "processing")
+
+        # 1. voice 파일 선택
+        await store.set_step(persona_id, ProcessingStep.SELECTING_VOICE)
+        voice_path = _pick_voice_file(persona_dir, persona_id)
+
+        # 2. Gemma audio-in 전사
+        await store.set_step(persona_id, ProcessingStep.TRANSCRIBING)
+        await _transcribe_voice(voice_path, ref_text_path, registry)
+
+        # 3. ref_audio 보관 (OmniVoice embedding API 미공개로 ref_audio 복사)
+        await store.set_step(persona_id, ProcessingStep.EXTRACTING_REF)
+        ref_audio_path = voice_ref_dir / f"ref_audio{voice_path.suffix}"
+        await _prepare_voice_ref(voice_path, ref_audio_path)
+
+        # 4. Ditto idle 클립 렌더
+        await store.set_step(persona_id, ProcessingStep.RENDERING_IDLE)
+        photo_path = _pick_photo_file(persona_dir, persona_id)
+        await _render_idle_clips(photo_path, idle_dir, registry)
+
+        # 5. ready
+        await store.set_step(persona_id, ProcessingStep.READY)
+        await repository.update_persona_status(persona_id, "ready")
+        logger.info("페르소나 생성 완료: %s", persona_id)
+    except Exception as exc:  # noqa: BLE001 — 모든 실패를 failed 로 환원
+        logger.exception("페르소나 생성 실패: %s", persona_id)
+        # 클라이언트/운영자에 한국어 요약 노출, 500자 컷.
+        reason = f"{type(exc).__name__}: {exc}"[:500]
+        await store.set_step(persona_id, ProcessingStep.FAILED, error_reason=reason)
+        try:
+            await repository.update_persona_status(persona_id, "failed")
+        except Exception:  # noqa: BLE001 — 폴백 실패도 로그만
+            logger.exception("update_persona_status('failed') 폴백 실패")
