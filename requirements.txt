@@ -45,8 +45,8 @@ autoawq>=0.2.7
 omnivoice
 
 # --- TensorRT runtime (Ditto-TalkingHead) ------------------------------------
-tensorrt>=10.7.0
-pycuda>=2025.1
+tensorrt>=10.16.0
+pycuda>=2026.1
 
 # NOTE: Ditto-TalkingHead itself ships as a standalone repository, not a pip
 # package. `scripts/download_models.py` clones it into ./vendor/ditto-talkinghead
