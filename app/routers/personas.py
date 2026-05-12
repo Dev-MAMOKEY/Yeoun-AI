@@ -1,12 +1,13 @@
-"""페르소나 생성·조회 라우터 (이슈 #9, 명세서 흐름 A).
+"""페르소나 생성·조회·삭제 라우터 (이슈 #9 + #12).
 
 엔드포인트:
-- POST `/internal/personas/{id}/process` → 202 + BackgroundTask 로
-  `process_persona` 비동기 실행
-- GET `/internal/personas/{id}/status` (#9 후속 커밋)
-- GET `/internal/personas/{id}/idle-clips` (#9 후속 커밋)
+- POST `/internal/personas/{id}/process` → 202 + BackgroundTask
+- GET `/internal/personas/{id}/status`
+- GET `/internal/personas/{id}/idle-clips`
+- DELETE `/internal/personas/{id}` (이슈 #12)
 """
 
+import logging
 from pathlib import Path
 from uuid import UUID
 
@@ -25,6 +26,9 @@ from ..schemas.persona import (
     PersonaStatusData,
     ProcessingStep,
 )
+from ..storage.filesystem import safe_rmtree
+
+logger = logging.getLogger("yeoun")
 
 router = APIRouter(prefix="/internal/personas", tags=["personas"])
 
@@ -183,3 +187,66 @@ async def get_idle_clips(
             )
 
     return ok(IdleClipsData(persona_id=persona_id, clips=clips))
+
+
+@router.delete(
+    "/{persona_id}",
+    response_model=Envelope[None],
+    summary="페르소나 영구 삭제",
+    description=(
+        "DB 레코드 + `/var/persona/{id}/` 영구 파일을 함께 물리 삭제한다. "
+        "FS 정리를 먼저 시도해 실패하면 DB 변경 없이 500 환원 — 고아 행 방지. "
+        "삭제 순서를 바꿀 경우 DB rollback 이 어려운 mock repository 환경에서 일관성을 잃을 위험이 있어 본 순서를 고수."
+    ),
+    dependencies=[Depends(require_internal_token)],
+    responses={
+        200: {"description": "DB+FS 모두 삭제 완료."},
+        401: {"description": "토큰이 없거나 유효하지 않음 (`UNAUTHORIZED`)."},
+        404: {"description": "페르소나 없음 (`NOT_FOUND`)."},
+        500: {"description": "FS 정리 실패 — DB 변경 없음 (`DELETE_FAILED`)."},
+    },
+)
+async def delete_persona(
+    persona_id: UUID,
+    settings: Settings = Depends(get_settings),
+) -> Envelope[None]:
+    record = await repository.get_persona(persona_id)
+    if record is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail={"code": "NOT_FOUND", "message": f"페르소나를 찾을 수 없습니다: {persona_id}"},
+        )
+
+    # 진행 중인 페르소나는 삭제 차단 — process_persona 가 voice_ref/idle 생성 중
+    # rmtree 진입 시 ENOENT 후 재생성으로 FS/DB 불일치 발생. 운영자가 process
+    # 완료(또는 failed) 까지 기다리거나 강제 cancel 인터페이스(후속) 호출 후 재시도.
+    if record.status == "processing":
+        raise HTTPException(
+            status_code=http_status.HTTP_409_CONFLICT,
+            detail={
+                "code": "CONFLICT",
+                "message": "처리 중 페르소나는 삭제할 수 없습니다 (status='processing').",
+            },
+        )
+
+    # 1) FS 정리 먼저 — 실패 시 DB 변경 안 함으로 고아 행 방지.
+    try:
+        deleted = await safe_rmtree(settings.persona_dir, str(persona_id))
+        logger.info("페르소나 FS 정리: persona=%s, deleted=%s", persona_id, deleted)
+    except PermissionError:
+        # safe_resolve 가드가 raise — 내부 절대 경로가 메시지에 포함되어 응답으로 새지 않도록 sanitize.
+        logger.exception("페르소나 FS 경로 가드 차단: persona=%s", persona_id)
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "DELETE_FAILED", "message": "내부 경로 검증 실패."},
+        )
+    except OSError as exc:
+        logger.exception("FS 삭제 실패, DB 변경 보류: persona=%s", persona_id)
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "DELETE_FAILED", "message": f"파일 정리 실패: {type(exc).__name__}"},
+        )
+
+    # 2) DB 삭제 — mock 은 dict pop, 실 DB 는 CASCADE 트랜잭션.
+    await repository.delete_persona_tx(persona_id)
+    return ok(None)
