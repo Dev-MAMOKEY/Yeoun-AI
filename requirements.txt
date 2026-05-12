@@ -41,10 +41,12 @@ pillow>=10.0.0
 #   pip install git+https://github.com/k2-fsa/OmniVoice.git
 omnivoice
 
-# --- TensorRT runtime (Ditto-TalkingHead) ------------------------------------
-tensorrt>=10.16.0
-pycuda>=2026.1
-
-# NOTE: Ditto-TalkingHead itself ships as a standalone repository, not a pip
-# package. `scripts/download_models.py` clones it into ./vendor/ditto-talkinghead
-# and the loader imports from that path.
+# --- Ditto-TalkingHead 추론 의존성 ------------------------------------------
+# Ditto 자체는 pip 패키지가 아닌 vendor 리포지토리(`./vendor/ditto-talkinghead`)
+# 로 제공되며, `app/models/talkinghead_ditto.py` 가 subprocess 로 그 안의
+# `inference.py` 를 호출한다. 이 섹션은 `inference.py` 가 import 하는 모듈을
+# 사전 설치해 첫 렌더 시 ImportError 가 나지 않도록 한다.
+#
+# Blackwell(sm_120) 은 vendor 가 빌드해 둔 TensorRT 8.6.1 엔진과 호환되지
+# 않으므로 PyTorch 백엔드(`ditto_pytorch` + `v0.4_hubert_cfg_pytorch.pkl`)
+# 를 사용한다 — 그래서 tensorrt / pycuda 는 의존성에서 제외.
