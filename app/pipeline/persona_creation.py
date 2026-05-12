@@ -242,6 +242,17 @@ async def process_persona(
         await store.set_step(persona_id, ProcessingStep.READY)
         await repository.update_persona_status(persona_id, "ready")
         logger.info("페르소나 생성 완료: %s", persona_id)
+    except asyncio.CancelledError:
+        # shutdown / 클라이언트 취소 — best-effort 로 status 표시 후 cancel 전파.
+        logger.warning("페르소나 생성 취소: %s", persona_id)
+        try:
+            await store.set_step(
+                persona_id, ProcessingStep.FAILED, error_reason="cancelled"
+            )
+            await repository.update_persona_status(persona_id, "failed")
+        except Exception:  # noqa: BLE001 — cancel 중 폴백 실패는 무시
+            logger.exception("취소 중 상태 갱신 실패")
+        raise
     except Exception as exc:  # noqa: BLE001 — 모든 실패를 failed 로 환원
         logger.exception("페르소나 생성 실패: %s", persona_id)
         # 클라이언트/운영자에 한국어 요약 노출, 500자 컷.
