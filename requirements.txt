@@ -57,8 +57,11 @@ einops
 # ABI 깨지기 쉬운 패키지는 vendor 의 environment.yaml 핀 근방으로 보수적 범위
 # 고정 — 무핀이면 onnxruntime-gpu 가 CUDA 12.x wheel 미배포 시 조용히 CPU
 # 폴백되거나, numba/llvmlite/mediapipe 의 마이너 버전 ABI 불일치로 import 실패.
-mediapipe>=0.10,<0.11
-onnxruntime-gpu>=1.18,<1.22
+# 상한 핀은 Python 3.14 wheel 미배포로 install 자체를 깨므로 하한만 둔다.
+# 도커는 Python 3.11 이라 자연스레 environment.yaml 근방 버전이 깔리고,
+# 로컬 venv(3.14) 는 최신 호환 wheel 이 깔린다.
+mediapipe>=0.10
+onnxruntime-gpu>=1.18
 opencv-python-headless
 polygraphy
 colored
@@ -70,8 +73,8 @@ soxr
 lazy-loader
 joblib
 msgpack
-numba>=0.60,<0.62
-llvmlite>=0.43,<0.45
+numba>=0.60
+llvmlite>=0.43
 decorator
 threadpoolctl
 scipy
