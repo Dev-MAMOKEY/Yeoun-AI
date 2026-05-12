@@ -19,6 +19,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from uuid import UUID
 
 from ..schemas.persona import ProcessingStep
@@ -76,6 +77,26 @@ class PersonaProcessingStore:
     def count(self) -> int:
         """현재 추적 중인 페르소나 수 (테스트·모니터링용)."""
         return len(self._states)
+
+
+def _persona_root(persona_dir: str, persona_id: UUID) -> Path:
+    """페르소나별 자원 루트 — `{PERSONA_DIR}/{persona_id}/`."""
+    return Path(persona_dir) / str(persona_id)
+
+
+def _pick_voice_file(persona_dir: str, persona_id: UUID) -> Path:
+    """`/var/persona/{id}/voice/*` 중 mtime 가장 새 파일을 선택.
+
+    Spring 이 다중 업로드한 경우 사용자가 마지막에 올린 파일을 ref 음성으로
+    사용한다는 가정. 디렉토리가 없거나 비어 있으면 `FileNotFoundError`.
+    """
+    voice_dir = _persona_root(persona_dir, persona_id) / "voice"
+    if not voice_dir.exists():
+        raise FileNotFoundError(f"voice 디렉토리 없음: {voice_dir}")
+    candidates = [p for p in voice_dir.iterdir() if p.is_file()]
+    if not candidates:
+        raise FileNotFoundError(f"voice 디렉토리 비어 있음: {voice_dir}")
+    return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
 async def process_persona(
