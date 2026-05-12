@@ -45,9 +45,9 @@ def test_health_returns_envelope_on_success(client):
     assert data["db"] == "ok"
     assert data["sessions"] == 0
     assert set(data["models"].keys()) == {"llm", "tts", "ditto"}
-    # GPU_ENABLED=false 모드에서 상주 모델은 더미 모드로 즉시 'loaded' 표시.
-    # Ditto 는 이슈 #8 머지 전이라 placeholder 'not_loaded' 그대로.
+    # GPU_ENABLED=false 모드에서 모든 모델이 더미 모드로 'loaded' 표시.
+    # Ditto 의 'loaded' 는 "경로 검증 통과, render 호출 가능" 의 의미.
     assert data["models"]["llm"] == "loaded"
     assert data["models"]["tts"] == "loaded"
-    assert data["models"]["ditto"] == "not_loaded"
+    assert data["models"]["ditto"] == "loaded"
     assert data["uptime_seconds"] >= 0

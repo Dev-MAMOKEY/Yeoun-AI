@@ -19,6 +19,7 @@ import logging
 
 from ..config import Settings
 from .llm_gemma import GemmaLLM
+from .talkinghead_ditto import DittoTalkingHead
 from .tts_omnivoice import OmniVoiceTTS
 
 logger = logging.getLogger("yeoun")
@@ -33,8 +34,10 @@ class ModelRegistry:
         self._settings = settings
         self.llm: GemmaLLM | None = None
         self.tts: OmniVoiceTTS | None = None
-        # Ditto 는 이슈 #8 에서 추가.
+        self.ditto: DittoTalkingHead | None = None
         self._gpu_semaphore = asyncio.Semaphore(GPU_CONCURRENCY)
+        # Ditto 는 매 호출 subprocess 라 Gemma/TTS 와 다른 자원 — 별도 락으로 분리.
+        self._ditto_semaphore = asyncio.Semaphore(GPU_CONCURRENCY)
 
     async def start(self) -> None:
         """상주 모델을 부팅 시점에 로드."""
@@ -54,10 +57,23 @@ class ModelRegistry:
         await self.tts.load()
         logger.info("OmniVoice TTS 상태=%s", self.tts.status)
 
+        logger.info("ModelRegistry — DittoTalkingHead 경로 검증")
+        self.ditto = DittoTalkingHead(
+            vendor_dir=self._settings.ditto_vendor_dir,
+            data_root=self._settings.ditto_data_root,
+            cfg_pkl=self._settings.ditto_cfg_pkl,
+            gpu_enabled=self._settings.gpu_enabled,
+        )
+        await self.ditto.load()
+        logger.info("DittoTalkingHead 상태=%s", self.ditto.status)
+
     async def stop(self) -> None:
         """모든 모델 자원 정리."""
         logger.info("ModelRegistry 종료")
-        # TTS 먼저 내려 GPU 메모리부터 회수 (상주 작은 모델).
+        # Ditto·TTS 먼저 내려 GPU 메모리부터 회수.
+        if self.ditto is not None:
+            await self.ditto.unload()
+            self.ditto = None
         if self.tts is not None:
             await self.tts.unload()
             self.tts = None
@@ -69,6 +85,11 @@ class ModelRegistry:
     def gpu_semaphore(self) -> asyncio.Semaphore:
         """GPU 추론 진입 직렬화용 세마포어 — 호출자가 `async with` 로 보호."""
         return self._gpu_semaphore
+
+    @property
+    def ditto_semaphore(self) -> asyncio.Semaphore:
+        """Ditto 렌더 전용 세마포어 — subprocess 라 Gemma/TTS 와 자원 분리."""
+        return self._ditto_semaphore
 
     @property
     def gpu_concurrency(self) -> int:
