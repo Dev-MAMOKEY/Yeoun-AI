@@ -85,6 +85,21 @@ def _persona_root(persona_dir: str, persona_id: UUID) -> Path:
     return Path(persona_dir) / str(persona_id)
 
 
+def _pick_photo_file(persona_dir: str, persona_id: UUID) -> Path:
+    """`/var/persona/{id}/photo/*` 중 mtime 가장 새 파일을 ref 사진으로 선택.
+
+    Spring 이 다중 업로드한 경우 사용자가 마지막에 올린 사진을 페르소나
+    대표 사진으로 사용한다는 가정. 디렉토리가 없거나 비어 있으면 `FileNotFoundError`.
+    """
+    photo_dir = _persona_root(persona_dir, persona_id) / "photo"
+    if not photo_dir.exists():
+        raise FileNotFoundError(f"photo 디렉토리 없음: {photo_dir}")
+    candidates = [p for p in photo_dir.iterdir() if p.is_file()]
+    if not candidates:
+        raise FileNotFoundError(f"photo 디렉토리 비어 있음: {photo_dir}")
+    return max(candidates, key=lambda p: p.stat().st_mtime)
+
+
 def _pick_voice_file(persona_dir: str, persona_id: UUID) -> Path:
     """`/var/persona/{id}/voice/*` 중 mtime 가장 새 파일을 선택.
 
