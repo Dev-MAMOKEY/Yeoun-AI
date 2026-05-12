@@ -317,7 +317,7 @@ async def _save_upload(
         buffer.extend(chunk)
         if len(buffer) > settings.max_upload_bytes:
             raise HTTPException(
-                status_code=http_status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                status_code=http_status.HTTP_413_CONTENT_TOO_LARGE,
                 detail={
                     "code": "PAYLOAD_TOO_LARGE",
                     "message": f"업로드 크기 한도 {settings.max_upload_bytes} 바이트를 초과했습니다.",
