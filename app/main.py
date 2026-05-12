@@ -99,12 +99,48 @@ Authorization: Bearer <INTERNAL_TOKEN>
 WireGuard 내부망에서 Spring Boot가 프록시합니다.
 
 ## 응답 포맷
-명세서 공통 규칙에 따라 모든 응답은 봉투(Envelope) 구조입니다:
+명세서 공통 규칙에 따라 모든 응답은 봉투(Envelope) 구조입니다 (스트리밍 응답 제외):
 
 ```json
 { "success": true,  "data": { ... }, "error": null }
 { "success": false, "data": null,    "error": { "code": "...", "message": "..." } }
 ```
+
+표준 에러 코드: `UNAUTHORIZED`·`INVALID_TOKEN`·`MISSING_TOKEN`·`NOT_FOUND`·`CONFLICT`·
+`VALIDATION_ERROR`·`SERVICE_UNAVAILABLE`·`TOO_MANY_REQUESTS`·`RANGE_NOT_SATISFIABLE`·
+`DELETE_FAILED`·`INTERNAL_ERROR`.
+
+## 흐름 A — 페르소나 생성 (이슈 #9)
+업로드 완료 후 백그라운드 파이프라인이 voice 전사·ref 자원 보관·idle 클립 2개 렌더 수행.
+```
+POST /internal/personas/{id}/process            → 202 (BackgroundTask)
+GET  /internal/personas/{id}/status             → status·step·error_reason (폴링)
+GET  /internal/personas/{id}/idle-clips         → 2개 클립 메타 (PERSONA_DIR 기준 상대경로)
+GET  /internal/personas/{id}/idle-clips/{idx}   → mp4 스트리밍 (Range 지원)
+DELETE /internal/personas/{id}                  → DB+FS 정리 (processing 중이면 409)
+```
+
+## 흐름 B — 대화 세션 (이슈 #10·#11)
+사용자 음성을 SSE 로 처리해 토큰·텍스트·미디어 이벤트를 순차 송출.
+```
+POST /internal/sessions/start                                    → session_id
+POST /internal/sessions/{id}/message (multipart audio)           → SSE 스트림
+POST /internal/sessions/{id}/end                                 → 메모리·speak 폐기
+GET  /internal/sessions/{id}/messages/{msg}/media?kind=audio|video → wav/mp4 (Range)
+```
+
+### SSE 이벤트 카탈로그
+`POST /internal/sessions/{id}/message` 가 송출하는 이벤트 타입:
+
+| event | data | 의미 |
+|---|---|---|
+| `token` | `<부분 텍스트>` | Gemma 응답 토큰 — 누적해 화면에 점진 표시 |
+| `text_done` | `{"message_id": "...", "text": "..."}` | 응답 완료, 출력 안전 필터 적용 후 |
+| `media_ready` | `{"message_id": "...", "path": "{persona_id}/speak/{session_id}/{msg}.mp4"}` | TTS+Ditto 합성 완료, GET media 라우트로 가져갈 수 있음 |
+| `crisis` | `{"message_id": "...", "keyword": "...", "guidance": "..."}` | 위기 키워드 감지, 즉시 안전 가이드로 전환 |
+| `error` | `{"reason": "..."}` | 처리 실패 — transcribe·stream·media 단계 중 어디서 |
+
+`ping=15` keep-alive 코멘트 프레임이 합성 hang 동안 송출됨 — 클라이언트·역방향 프록시는 무시.
 
 ## 명세서
 - [기능 명세서 (Notion)](https://www.notion.so/35b0e70c795680059393e2999c46e320)
