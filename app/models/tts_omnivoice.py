@@ -67,9 +67,11 @@ class OmniVoiceTTS:
         from omnivoice import OmniVoice  # type: ignore[import-not-found]
 
         logger.info("OmniVoice 로드 시작: %s", path)
+        # Gemma 와 동일한 `device_map="auto"` 정책으로 단일 GPU 환경에서도 0번
+        # 디바이스에 올라가고, 다중 GPU 환경에선 accelerate 가 알아서 분산.
         self._model = OmniVoice.from_pretrained(
             path,
-            device_map="cuda:0",
+            device_map="auto",
             dtype=torch.float16,
         )
         logger.info("OmniVoice 로드 완료")
