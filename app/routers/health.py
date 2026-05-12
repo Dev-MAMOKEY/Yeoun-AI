@@ -99,8 +99,9 @@ async def health(
     sessions = session_store.count() if session_store is not None else 0
     registry: ModelRegistry | None = getattr(request.app.state, "registry", None)
     llm_status = registry.llm.status if registry is not None and registry.llm is not None else "not_loaded"
-    # TTS·Ditto 상태는 이슈 #7·#8 머지 시 동일하게 registry 에서 읽어 채운다.
-    models = ModelStatus(llm=llm_status)
+    tts_status = registry.tts.status if registry is not None and registry.tts is not None else "not_loaded"
+    # Ditto 상태는 이슈 #8 머지 시 동일하게 registry 에서 읽어 채운다.
+    models = ModelStatus(llm=llm_status, tts=tts_status)
 
     # status 도출:
     # - lifespan 미완료 → degraded

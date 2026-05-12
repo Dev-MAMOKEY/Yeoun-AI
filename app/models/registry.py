@@ -19,6 +19,7 @@ import logging
 
 from ..config import Settings
 from .llm_gemma import GemmaLLM
+from .tts_omnivoice import OmniVoiceTTS
 
 logger = logging.getLogger("yeoun")
 
@@ -31,7 +32,8 @@ class ModelRegistry:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self.llm: GemmaLLM | None = None
-        # TTS / Ditto 는 이슈 #7 / #8 에서 추가.
+        self.tts: OmniVoiceTTS | None = None
+        # Ditto 는 이슈 #8 에서 추가.
         self._gpu_semaphore = asyncio.Semaphore(GPU_CONCURRENCY)
 
     async def start(self) -> None:
@@ -44,9 +46,21 @@ class ModelRegistry:
         await self.llm.load()
         logger.info("Gemma LLM 상태=%s", self.llm.status)
 
+        logger.info("ModelRegistry — OmniVoice TTS 로드 시도")
+        self.tts = OmniVoiceTTS(
+            model_path=self._settings.tts_model_path,
+            gpu_enabled=self._settings.gpu_enabled,
+        )
+        await self.tts.load()
+        logger.info("OmniVoice TTS 상태=%s", self.tts.status)
+
     async def stop(self) -> None:
         """모든 모델 자원 정리."""
         logger.info("ModelRegistry 종료")
+        # TTS 먼저 내려 GPU 메모리부터 회수 (상주 작은 모델).
+        if self.tts is not None:
+            await self.tts.unload()
+            self.tts = None
         if self.llm is not None:
             await self.llm.unload()
             self.llm = None
