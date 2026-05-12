@@ -50,3 +50,12 @@ omnivoice
 # Blackwell(sm_120) 은 vendor 가 빌드해 둔 TensorRT 8.6.1 엔진과 호환되지
 # 않으므로 PyTorch 백엔드(`ditto_pytorch` + `v0.4_hubert_cfg_pytorch.pkl`)
 # 를 사용한다 — 그래서 tensorrt / pycuda 는 의존성에서 제외.
+
+# Ditto inference 핵심 import — vendor/inference.py 가 직접 사용.
+cython
+einops
+mediapipe
+onnxruntime-gpu
+opencv-python-headless
+polygraphy
+colored
