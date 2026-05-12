@@ -36,7 +36,11 @@ class ModelRegistry:
         self.tts: OmniVoiceTTS | None = None
         self.ditto: DittoTalkingHead | None = None
         self._gpu_semaphore = asyncio.Semaphore(GPU_CONCURRENCY)
-        # Ditto 는 매 호출 subprocess 라 Gemma/TTS 와 다른 자원 — 별도 락으로 분리.
+        # Ditto 는 매 호출 subprocess 라 Gemma/TTS 와 자원이 분리된다 — 별도 락 유지.
+        # 통합하면 SSE 토큰 스트리밍(Gemma) 도중 Ditto 렌더가 차단되어 응답 지연.
+        # 동시 점유 시 VRAM 합계는 LLM(BF16) ~8GB + TTS ~2GB + Ditto subprocess
+        # ~2.2GB ≈ 12GB 로 24GB 안에서 안전 마진 확보. 추후 KV 캐시 증가나 동시 세션
+        # 폭증으로 OOM 압력이 보이면 통합 또는 #15 단계에서 메모리 예산 재산정.
         self._ditto_semaphore = asyncio.Semaphore(GPU_CONCURRENCY)
 
     async def start(self) -> None:
