@@ -164,7 +164,7 @@ def test_get_idle_clip_416_out_of_range(media_client):
     pid = uuid4()
     _run(repository._reset_mock())
     _run(repository.mock_seed_persona(_make_persona(pid)))
-    _seed_idle(persona_dir, pid)
+    payload = _seed_idle(persona_dir, pid)
 
     res = client.get(
         f"/internal/personas/{pid}/idle-clips/0",
@@ -174,7 +174,8 @@ def test_get_idle_clip_416_out_of_range(media_client):
         },
     )
     assert res.status_code == 416
-    assert "content-range" in res.headers
+    # RFC 9110 §15.5.17 — 416 응답은 `bytes */N` 형식으로 자원 크기 노출.
+    assert res.headers["content-range"] == f"bytes */{len(payload)}"
 
 
 def test_get_idle_clip_invalid_index_404(media_client):
@@ -187,3 +188,93 @@ def test_get_idle_clip_invalid_index_404(media_client):
         headers={"Authorization": f"Bearer {TEST_TOKEN}"},
     )
     assert res.status_code == 404
+
+
+# --- session media 라우트 --------------------------------------------------
+
+
+def _seed_session(client, persona_dir: Path, persona_id: UUID, session_id: UUID, message_id: UUID, *, video: bool = True) -> bytes:
+    """speak/{sid}/{mid}.{mp4|wav} 시드 + 라우터에서 store.get 통과하도록 세션 등록."""
+    suffix = "mp4" if video else "wav"
+    speak_dir = persona_dir / str(persona_id) / "speak" / str(session_id)
+    speak_dir.mkdir(parents=True)
+    payload = b"\x11" * 500 + b"VIDEO"
+    (speak_dir / f"{message_id}.{suffix}").write_bytes(payload)
+    # SessionStore 에 등록 — TestClient lifespan 안에서 app.state.session_store 존재.
+    store = client.app.state.session_store
+    store.create(
+        SessionState(
+            session_id=session_id,
+            user_id=uuid4(),
+            persona_id=persona_id,
+            system_prompt="prompt",
+            started_at=time.time(),
+            last_activity_at=time.time(),
+        )
+    )
+    return payload
+
+
+def test_get_session_media_full_200(media_client):
+    client, persona_dir = media_client
+    pid, sid, mid = uuid4(), uuid4(), uuid4()
+    payload = _seed_session(client, persona_dir, pid, sid, mid, video=True)
+
+    res = client.get(
+        f"/internal/sessions/{sid}/messages/{mid}/media",
+        params={"kind": "video"},
+        headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+    )
+    assert res.status_code == 200
+    assert res.headers["accept-ranges"] == "bytes"
+    assert res.content == payload
+
+
+def test_get_session_media_range_206(media_client):
+    client, persona_dir = media_client
+    pid, sid, mid = uuid4(), uuid4(), uuid4()
+    payload = _seed_session(client, persona_dir, pid, sid, mid, video=True)
+
+    res = client.get(
+        f"/internal/sessions/{sid}/messages/{mid}/media",
+        params={"kind": "video"},
+        headers={"Authorization": f"Bearer {TEST_TOKEN}", "Range": "bytes=0-49"},
+    )
+    assert res.status_code == 206
+    assert res.headers["content-range"] == f"bytes 0-49/{len(payload)}"
+    assert res.content == payload[:50]
+
+
+def test_get_session_media_audio_kind(media_client):
+    client, persona_dir = media_client
+    pid, sid, mid = uuid4(), uuid4(), uuid4()
+    payload = _seed_session(client, persona_dir, pid, sid, mid, video=False)
+
+    res = client.get(
+        f"/internal/sessions/{sid}/messages/{mid}/media",
+        params={"kind": "audio"},
+        headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+    )
+    assert res.status_code == 200
+    assert res.headers["content-type"].startswith("audio/")
+    assert res.content == payload
+
+
+def test_get_session_media_404_unknown_session(media_client):
+    client, _ = media_client
+    res = client.get(
+        f"/internal/sessions/{uuid4()}/messages/{uuid4()}/media",
+        params={"kind": "video"},
+        headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+    )
+    assert res.status_code == 404
+
+
+def test_get_session_media_invalid_kind_422(media_client):
+    client, _ = media_client
+    res = client.get(
+        f"/internal/sessions/{uuid4()}/messages/{uuid4()}/media",
+        params={"kind": "subtitle"},
+        headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+    )
+    assert res.status_code == 422
