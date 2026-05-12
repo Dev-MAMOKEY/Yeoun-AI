@@ -9,7 +9,9 @@
 """
 
 import asyncio
+import logging
 import os
+import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -26,9 +28,11 @@ from ..models.registry import ModelRegistry
 from ..pipeline.conversation import process_message
 from ..prompts.system_prompt import build_system_prompt
 from ..schemas.common import Envelope, ok
-from ..schemas.session import SessionStartData, SessionStartRequest
+from ..schemas.session import SessionEndData, SessionStartData, SessionStartRequest
 from ..sessions.schemas import SessionState
 from ..sessions.store import SessionStore
+
+logger = logging.getLogger("yeoun")
 
 # 동시 SSE 메시지 처리 한도 — 초과 시 503 + Retry-After.
 # 단일 워커·GPU 1 장 전제에서 한 번에 너무 많은 메시지가 큐잉되면 응답 지연이
@@ -184,3 +188,45 @@ async def post_message(
                 _active_messages -= 1
 
     return EventSourceResponse(event_generator())
+
+
+@router.post(
+    "/{session_id}/end",
+    response_model=Envelope[SessionEndData],
+    summary="세션 종료",
+    description=(
+        "세션 메모리에서 폐기하고 `/var/persona/{persona_id}/speak/{session_id}/` "
+        "디렉토리를 통째 삭제한다. 명세서 「공통 규칙」: 대화 미디어는 세션 종료 즉시 폐기."
+    ),
+    dependencies=[Depends(require_internal_token)],
+    responses={
+        401: {"description": "토큰이 없거나 유효하지 않음 (`UNAUTHORIZED`)."},
+        404: {"description": "세션 없음 (`NOT_FOUND`)."},
+    },
+)
+async def end_session(
+    session_id: UUID,
+    request: Request,
+    settings: Settings = Depends(get_settings),
+) -> Envelope[SessionEndData]:
+    _registry, store = _service_state(request)
+    session = store.end(session_id)
+    if session is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail={"code": "NOT_FOUND", "message": f"세션을 찾을 수 없습니다: {session_id}"},
+        )
+
+    # speak 디렉토리 통째 정리. persona_dir 안의 한정된 하위만 다루므로 path
+    # traversal 위험 없음 — session_id 는 UUID, persona_id 도 UUID.
+    speak_dir = Path(settings.persona_dir) / str(session.persona_id) / "speak" / str(session_id)
+    if speak_dir.exists():
+        await asyncio.to_thread(shutil.rmtree, speak_dir, ignore_errors=True)
+        logger.info("speak 디렉토리 정리: %s", speak_dir)
+
+    return ok(
+        SessionEndData(
+            session_id=session_id,
+            cleaned_messages=len(session.history),
+        )
+    )
