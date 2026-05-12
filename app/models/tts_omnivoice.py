@@ -112,9 +112,10 @@ class OmniVoiceTTS:
             output_path: 합성 결과 wav 를 저장할 경로 (호출자가 결정).
         """
         target = Path(output_path)
-        target.parent.mkdir(parents=True, exist_ok=True)
 
         if not self._gpu_enabled:
+            # mkdir + 파일 쓰기를 helper 안에서 to_thread 로 한 번에 처리 — async
+            # 본문이 동기 disk I/O 로 event loop 를 점유하지 않게 한다.
             await asyncio.to_thread(_write_silent_wav, target)
             return target
 
@@ -140,6 +141,7 @@ class OmniVoiceTTS:
         """
         import soundfile as sf  # type: ignore[import-not-found]
 
+        target.parent.mkdir(parents=True, exist_ok=True)
         audio = self._model.generate(  # type: ignore[union-attr]
             text=text,
             ref_audio=ref_audio_path,
@@ -154,5 +156,6 @@ def _write_silent_wav(target: Path) -> None:
     import numpy as np
     import soundfile as sf
 
+    target.parent.mkdir(parents=True, exist_ok=True)
     samples = int(_SAMPLE_RATE * _DUMMY_DURATION_SECONDS)
     sf.write(str(target), np.zeros(samples, dtype="float32"), _SAMPLE_RATE)
