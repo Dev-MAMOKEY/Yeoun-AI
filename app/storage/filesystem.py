@@ -10,8 +10,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import AsyncIterator
 
-# 기본 청크 — 8MiB mp4 한 조각이 ~1초 video. 너무 크면 메모리·작은 latency,
-# 너무 작으면 syscall 오버헤드. 8KiB 가 적절한 절충.
+# 기본 청크 — 너무 크면 메모리 압박·작은 latency, 너무 작으면 syscall 오버헤드.
+# NVMe + uvicorn 단일 워커 환경에서 64KiB 가 적절한 절충(syscall ~µs).
 _RANGE_CHUNK_SIZE = 64 * 1024
 
 
