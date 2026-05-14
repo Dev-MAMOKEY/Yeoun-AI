@@ -262,7 +262,7 @@ async def upload_voice(
         settings=settings,
     )
     await repository.insert_persona_voice_asset(
-        voice_assest_id=uuid4(),
+        voice_asset_id=uuid4(),
         persona_id=persona_id,
         original_name=original_name or target.name,
         filesystem_path=str(target),

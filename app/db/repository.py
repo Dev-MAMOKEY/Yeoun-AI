@@ -171,18 +171,18 @@ async def insert_persona_photo_asset(
 
 async def insert_persona_voice_asset(
     *,
-    voice_assest_id: UUID,
+    voice_asset_id: UUID,
     persona_id: UUID,
     original_name: str,
     filesystem_path: str,
 ) -> None:
-    """`persona_voice_assets` 신규 행 삽입. ERD 오타 `voice_assest_id` 그대로."""
+    """`persona_voice_assets` 신규 행 삽입. 실 DB 는 ERD 오타를 정정한 `voice_asset_id` 사용."""
     settings = get_settings()
     if settings.use_db_mock:
         async with _get_mock_lock():
             _mock_voice_assets.append(
                 {
-                    "voice_assest_id": voice_assest_id,
+                    "voice_asset_id": voice_asset_id,
                     "persona_id": persona_id,
                     "original_name": original_name,
                     "filesystem_path": filesystem_path,
@@ -197,11 +197,11 @@ async def insert_persona_voice_asset(
         await session.execute(
             text(
                 "INSERT INTO persona_voice_assets "
-                "(voice_assest_id, persona_id, original_name, filesystem_path, uploaded_at) "
+                "(voice_asset_id, persona_id, original_name, filesystem_path, uploaded_at) "
                 "VALUES (:aid, :pid, :name, :path, NOW())"
             ),
             {
-                "aid": voice_assest_id,
+                "aid": voice_asset_id,
                 "pid": persona_id,
                 "name": original_name,
                 "path": filesystem_path,
