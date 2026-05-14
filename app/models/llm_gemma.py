@@ -69,9 +69,16 @@ class GemmaLLM:
         *,
         bf16_path: str | None,
         gpu_enabled: bool,
+        gpu_max_memory: str = "12GiB",
+        cpu_max_memory: str = "32GiB",
     ) -> None:
         self._bf16_path = bf16_path
         self._gpu_enabled = gpu_enabled
+        # accelerate device_map="auto" + max_memory 로 Gemma 의 일부 레이어를 CPU RAM
+        # 으로 자동 오프로드. 24GB GPU 에서 Ditto subprocess(피크 6~8GB) + OmniVoice
+        # (~2GB) 와 공존 가능하도록 워커 GPU 점유를 명시적으로 제한.
+        self._gpu_max_memory = gpu_max_memory
+        self._cpu_max_memory = cpu_max_memory
         self._status: LlmStatus = "not_loaded"
         self._model = None
         self._processor = None
@@ -113,11 +120,15 @@ class GemmaLLM:
         import torch
         from transformers import AutoProcessor
 
-        logger.info("Gemma BF16 로드 시작: %s", path)
+        logger.info(
+            "Gemma BF16 로드 시작: %s (gpu_max=%s, cpu_max=%s)",
+            path, self._gpu_max_memory, self._cpu_max_memory,
+        )
         self._processor = AutoProcessor.from_pretrained(path)
         self._model = _AutoModel.from_pretrained(
             path,
             device_map="auto",
+            max_memory={0: self._gpu_max_memory, "cpu": self._cpu_max_memory},
             dtype=torch.bfloat16,
         )
         logger.info("Gemma BF16 로드 완료")
