@@ -27,6 +27,21 @@ from .models import InterviewAnswer, PersonaRecord, SafetyEvent
 logger = logging.getLogger("yeoun")
 
 
+# 로그 redact 대상 — 명세서 「안전 정책: 원본 메시지·비식별 패턴 모니터링 전용」 에
+# 따라 식별자(UUID PK) 는 운영 로그에 평문 노출 금지. 부팅 결함 진단에 필요한 메타
+# (event_type·status·sequence_order 등) 는 보존.
+_PII_LOG_KEYS = frozenset(
+    {
+        "user_id",
+        "persona_id",
+        "logs_id",
+        "photo_asset_id",
+        "voice_asset_id",
+        "clip_id",
+    }
+)
+
+
 def _raise_db_uninitialized(func_name: str, **context: object) -> NoReturn:
     """쓰기 함수의 `sessionmaker is None` 분기 공통 처리.
 
@@ -35,10 +50,17 @@ def _raise_db_uninitialized(func_name: str, **context: object) -> NoReturn:
     회귀 발생. 본 헬퍼가 ERROR 로그(운영자 즉시 인지) + RuntimeError(호출자 흐름에서
     잡혀 사용자에게 의미 있는 응답으로 환원) 두 가지를 수행. 읽기 함수(get_*) 는
     빈 결과 반환이 graceful degradation 이라 본 헬퍼를 호출하지 않는다.
+
+    context 에 포함된 식별자(UUID PK) 키는 명세서 안전 정책에 따라 평문 로그 노출
+    금지 — `<redacted>` 로 치환 후 운영자 진단용 메타(event_type 등) 만 보존.
     """
+    safe_context = {
+        key: ("<redacted>" if key in _PII_LOG_KEYS else value)
+        for key, value in context.items()
+    }
     logger.error(
         "%s sessionmaker 미초기화 (USE_DB_MOCK=false 부팅 결함): context=%s",
-        func_name, context,
+        func_name, safe_context,
     )
     raise RuntimeError(
         f"{func_name}: DB sessionmaker 가 초기화되지 않았습니다 — "
