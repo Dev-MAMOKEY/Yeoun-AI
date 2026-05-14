@@ -18,10 +18,12 @@ from __future__ import annotations
 import json
 import logging
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator
 from uuid import uuid4
 
+from ..db import repository
 from ..safety.input_guard import check_crisis
 from ..safety.output_guard import filter_response
 from ..sessions.schemas import MessageRecord, SessionState
@@ -80,6 +82,17 @@ async def process_message(
         logger.info(
             "위기 키워드 감지: session=%s, keyword=%s", session.session_id, crisis.matched_keyword
         )
+        # 비식별 이벤트 1 행 기록 — 원본 메시지·키워드 주변 문맥은 저장하지 않음.
+        try:
+            await repository.insert_safety_log(
+                logs_id=uuid4(),
+                user_id=session.user_id,
+                event_type="crisis_keyword",
+                action_katen="block",
+                deceted_at=datetime.now(timezone.utc),
+            )
+        except Exception:  # noqa: BLE001 — 안전 로그 실패는 본 흐름을 막지 않는다.
+            logger.exception("safety_logs INSERT 실패 (crisis 분기)")
         yield {
             "event": "crisis",
             "data": json.dumps(
@@ -119,6 +132,16 @@ async def process_message(
             session.session_id,
             filtered.matched_keyword,
         )
+        try:
+            await repository.insert_safety_log(
+                logs_id=uuid4(),
+                user_id=session.user_id,
+                event_type="forbidden_topic",
+                action_katen="mask",
+                deceted_at=datetime.now(timezone.utc),
+            )
+        except Exception:  # noqa: BLE001 — 안전 로그 실패는 응답을 막지 않는다.
+            logger.exception("safety_logs INSERT 실패 (forbidden 분기)")
         final_text = "(이 주제는 답변드리기 어려워요. 다른 이야기를 나눌까요?)"
     else:
         final_text = filtered.text
