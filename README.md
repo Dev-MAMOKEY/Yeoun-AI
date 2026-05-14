@@ -118,13 +118,13 @@ docker compose logs -f yeoun-engine   # "ModelRegistry 시작" 로그 확인
 ### Spring Boot 호출 시퀀스 — 페르소나 생성
 
 ```
-1. Spring  → DB:    INSERT INTO personas (status='created', ...)
+1. Spring  → DB:    INSERT INTO personas (status='DRAFT', ...)
 2. Spring  → DB:    INSERT INTO persona_interviews (10 rows, question_number 1..10)
 3. Spring  → AI:    POST /internal/personas/{id}/photo   (multipart, image/jpeg|png|webp, ≤50MB)
 4. Spring  → AI:    POST /internal/personas/{id}/voice   (multipart, audio/wav|mp3|m4a|webm|ogg, ≤50MB)
 5. Spring  → AI:    POST /internal/personas/{id}/process  → 202
-6. Spring loop  →   GET  /internal/personas/{id}/status  → status 'ready'/'failed' 까지 5초 폴링
-7. ready 시         GET  /internal/personas/{id}/idle-clips → 클립 메타
+6. Spring loop  →   GET  /internal/personas/{id}/status  → status 'READY'/'FAILED' 까지 5초 폴링
+7. READY 시         GET  /internal/personas/{id}/idle-clips → 클립 메타
 ```
 
 자원 저장 위치 (컨테이너 안 `/var/persona/{persona_id}/`):
