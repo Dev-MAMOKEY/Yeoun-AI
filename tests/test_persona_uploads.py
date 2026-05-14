@@ -16,7 +16,7 @@ from app.db.models import PersonaRecord
 from tests.conftest import TEST_TOKEN
 
 
-def _make_persona(persona_id: UUID, status: str = "created") -> PersonaRecord:
+def _make_persona(persona_id: UUID, status: str = "DRAFT") -> PersonaRecord:
     return PersonaRecord(
         personas_id=persona_id,
         owner_user_id=uuid4(),
@@ -116,7 +116,7 @@ def test_upload_409_when_processing(upload_client):
     client, _ = upload_client
     pid = uuid4()
     _run(repository._reset_mock())
-    rec = _make_persona(pid).model_copy(update={"status": "processing"})
+    rec = _make_persona(pid).model_copy(update={"status": "PROCESSING"})
     _run(repository.mock_seed_persona(rec))
 
     res = client.post(

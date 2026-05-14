@@ -18,7 +18,7 @@ from app.db.models import PersonaRecord
 from tests.conftest import TEST_TOKEN
 
 
-def _make_persona(persona_id: UUID, status: str = "created") -> PersonaRecord:
+def _make_persona(persona_id: UUID, status: str = "DRAFT") -> PersonaRecord:
     return PersonaRecord(
         personas_id=persona_id,
         owner_user_id=uuid4(),
@@ -63,9 +63,9 @@ def _seed_assets(persona_dir: Path, persona_id: UUID) -> Path:
 def test_e2e_persona_session_delete_flow(e2e_client):
     """명세 흐름 A → B → 삭제 한 줄짜리 시퀀스 검증.
 
-    1. 페르소나 시드 (status='created') + voice/photo 자원 시드
+    1. 페르소나 시드 (status='DRAFT') + voice/photo 자원 시드
     2. POST /process → 202, TestClient 가 BackgroundTask 를 응답 후 동기 실행
-    3. GET /status → status='ready', step=READY
+    3. GET /status → status='READY', step=READY
     4. GET /idle-clips → 더미 placeholder mp4 2개
     5. POST /sessions/start → session_id
     6. POST /sessions/{id}/end → cleaned_messages=0
@@ -85,11 +85,11 @@ def test_e2e_persona_session_delete_flow(e2e_client):
     assert res.status_code == 202
 
     # 3. status — TestClient 가 BackgroundTask 를 response 직후 동기 실행하므로
-    #    여기서 status 가 'ready' 여야 함.
+    #    여기서 status 가 'READY' 여야 함.
     res = client.get(f"/internal/personas/{pid}/status", headers=auth)
     assert res.status_code == 200
     data = res.json()["data"]
-    assert data["status"] == "ready", (
+    assert data["status"] == "READY", (
         f"BackgroundTask 완료 후 status 불일치: status={data['status']!r}, "
         f"step={data.get('step')!r}, error_reason={data.get('error_reason')!r}"
     )

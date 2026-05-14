@@ -24,7 +24,7 @@ from app.storage.filesystem import (
 from tests.conftest import TEST_TOKEN
 
 
-def _make_persona(persona_id: UUID, status: str = "ready") -> PersonaRecord:
+def _make_persona(persona_id: UUID, status: str = "READY") -> PersonaRecord:
     return PersonaRecord(
         personas_id=persona_id,
         owner_user_id=uuid4(),

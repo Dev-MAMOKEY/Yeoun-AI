@@ -29,7 +29,7 @@ def _run(coro):
         loop.close()
 
 
-def _make_persona(persona_id: UUID, status: str = "ready") -> PersonaRecord:
+def _make_persona(persona_id: UUID, status: str = "READY") -> PersonaRecord:
     return PersonaRecord(
         personas_id=persona_id,
         owner_user_id=uuid4(),
@@ -186,7 +186,7 @@ def test_start_session_404_when_persona_missing(client):
 
 def test_start_session_409_when_not_ready(client):
     pid = uuid4()
-    _run(repository.mock_seed_persona(_make_persona(pid, status="processing")))
+    _run(repository.mock_seed_persona(_make_persona(pid, status="PROCESSING")))
     payload = {"user_id": str(uuid4()), "persona_id": str(pid)}
     res = client.post(
         "/internal/sessions/start",
@@ -199,7 +199,7 @@ def test_start_session_409_when_not_ready(client):
 
 def test_start_then_end_session(client):
     pid = uuid4()
-    _run(repository.mock_seed_persona(_make_persona(pid, status="ready")))
+    _run(repository.mock_seed_persona(_make_persona(pid, status="READY")))
     payload = {"user_id": str(uuid4()), "persona_id": str(pid)}
     res = client.post(
         "/internal/sessions/start",
