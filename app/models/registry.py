@@ -49,6 +49,8 @@ class ModelRegistry:
         self.llm = GemmaLLM(
             bf16_path=self._settings.llm_bf16_path,
             gpu_enabled=self._settings.gpu_enabled,
+            gpu_max_memory=self._settings.llm_gpu_max_memory,
+            cpu_max_memory=self._settings.llm_cpu_max_memory,
         )
         await self.llm.load()
         logger.info("Gemma LLM 상태=%s", self.llm.status)
