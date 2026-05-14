@@ -13,6 +13,7 @@ ERD 의 PostgreSQL 스키마에 직접 동작하는 SQLAlchemy async raw SQL 구
 """
 
 import asyncio
+import logging
 from datetime import datetime
 from uuid import UUID
 
@@ -21,6 +22,8 @@ from sqlalchemy import text
 from ..config import get_settings
 from .engine import get_sessionmaker
 from .models import InterviewAnswer, PersonaRecord, SafetyEvent
+
+logger = logging.getLogger("yeoun")
 
 # --- 프로세스 인메모리 mock 저장소 -------------------------------------------
 # 워커 1개 가정. asyncio.Lock 으로 동시 갱신 직렬화.
@@ -80,6 +83,14 @@ async def update_persona_status(persona_id: UUID, status: str) -> None:
 
     sessionmaker = get_sessionmaker()
     if sessionmaker is None:
+        # silent return 자체는 다른 함수(insert_*/get_*) 와의 일관성 위해 유지.
+        # 단 process_persona 의 cancel/except 핸들러가 status='FAILED' 갱신 시 본 silent 가
+        # 가려지면 DB 상태가 'PROCESSING' 으로 굳어져 후속 업로드 영구 409 (별도 후속 이슈).
+        # 즉시 가시화로 운영자가 부팅 결함을 빠르게 인지할 수 있도록 ERROR 로그만 추가.
+        logger.error(
+            "update_persona_status silent fail — sessionmaker 미초기화 (persona_id=%s, status=%s)",
+            persona_id, status,
+        )
         return
     async with sessionmaker() as session, session.begin():
         await session.execute(
