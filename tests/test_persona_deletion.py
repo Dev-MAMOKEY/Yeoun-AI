@@ -164,6 +164,60 @@ def test_delete_persona_fs_failure_leaves_db(delete_client, monkeypatch):
         headers={"Authorization": f"Bearer {TEST_TOKEN}"},
     )
     assert res.status_code == 500
-    assert res.json()["error"]["code"] == "DELETE_FAILED"
+    assert res.json()["error"]["code"] == "FS_DELETE_FAILED"
     # DB 행 보존 (롤백 효과)
     assert _run(repository.get_persona(pid)) is not None
+
+
+def test_delete_persona_db_failure_after_fs_returns_500(delete_client, monkeypatch):
+    """`delete_persona_tx` 가 예외 raise 면 FS 정리 후 500 — 역고아 상태 명시 노출.
+
+    FS 는 이미 사라졌고 DB 행만 남는 케이스. 사용자에게 "성공" 으로 보이지 않도록
+    500 + 운영자 한국어 메시지로 환원. #56 의 핵심 회귀 방지 테스트.
+    """
+    client, persona_dir = delete_client
+    pid = uuid4()
+    _run(repository._reset_mock())
+    _run(repository.mock_seed_persona(_make_persona(pid)))
+    root = _seed_persona(persona_dir, pid)
+
+    async def fake_delete_tx(persona_id):  # noqa: ARG001
+        raise RuntimeError("DB sessionmaker 가 초기화되지 않았습니다")
+
+    monkeypatch.setattr(
+        "app.routers.personas.repository.delete_persona_tx", fake_delete_tx
+    )
+    res = client.delete(
+        f"/internal/personas/{pid}",
+        headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+    )
+    assert res.status_code == 500
+    body = res.json()
+    assert body["error"]["code"] == "DB_DELETE_FAILED"
+    assert "수동 정리" in body["error"]["message"]
+    # FS 는 이미 정리됐음 — 의도된 역고아 상태 가시화.
+    assert not root.exists()
+    # DB 행은 그대로 남아 운영자 수동 정리 가능 (역고아 상태 회귀 방지).
+    assert _run(repository.get_persona(pid)) is not None
+
+
+async def test_delete_persona_tx_raises_when_sessionmaker_missing(monkeypatch):
+    """실 DB 분기에서 `sessionmaker is None` 일 때 silent return 이 아니라 RuntimeError raise.
+
+    `USE_DB_MOCK=true` 가 아닌 환경에서 부팅 결함으로 sessionmaker 가 초기화 안 된 상태.
+    이전엔 silent return 이었으나 #56 에서 명시적 예외로 전환해 라우터가 역고아 가시화 가능.
+    """
+    import pytest
+
+    from app.config import get_settings
+
+    monkeypatch.setenv("USE_DB_MOCK", "false")
+    get_settings.cache_clear()
+    monkeypatch.setattr("app.db.repository.get_sessionmaker", lambda: None)
+
+    try:
+        with pytest.raises(RuntimeError, match="sessionmaker"):
+            await repository.delete_persona_tx(uuid4())
+    finally:
+        # 다른 테스트 격리 위해 cache 비우기.
+        get_settings.cache_clear()

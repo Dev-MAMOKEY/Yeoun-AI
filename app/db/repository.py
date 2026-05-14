@@ -13,6 +13,7 @@ ERD 의 PostgreSQL 스키마에 직접 동작하는 SQLAlchemy async raw SQL 구
 """
 
 import asyncio
+import logging
 from datetime import datetime
 from uuid import UUID
 
@@ -21,6 +22,8 @@ from sqlalchemy import text
 from ..config import get_settings
 from .engine import get_sessionmaker
 from .models import InterviewAnswer, PersonaRecord, SafetyEvent
+
+logger = logging.getLogger("yeoun")
 
 # --- 프로세스 인메모리 mock 저장소 -------------------------------------------
 # 워커 1개 가정. asyncio.Lock 으로 동시 갱신 직렬화.
@@ -80,6 +83,14 @@ async def update_persona_status(persona_id: UUID, status: str) -> None:
 
     sessionmaker = get_sessionmaker()
     if sessionmaker is None:
+        # silent return 자체는 다른 함수(insert_*/get_*) 와의 일관성 위해 유지.
+        # 단 process_persona 의 cancel/except 핸들러가 status='FAILED' 갱신 시 본 silent 가
+        # 가려지면 DB 상태가 'PROCESSING' 으로 굳어져 후속 업로드 영구 409 (별도 후속 이슈).
+        # 즉시 가시화로 운영자가 부팅 결함을 빠르게 인지할 수 있도록 ERROR 로그만 추가.
+        logger.error(
+            "update_persona_status silent fail — sessionmaker 미초기화 (persona_id=%s, status=%s)",
+            persona_id, status,
+        )
         return
     async with sessionmaker() as session, session.begin():
         await session.execute(
@@ -111,7 +122,13 @@ async def delete_persona_tx(persona_id: UUID) -> None:
 
     sessionmaker = get_sessionmaker()
     if sessionmaker is None:
-        return
+        # 다른 함수는 silent return 으로 부팅 결함을 가렸지만 DELETE 는 FS 정리가
+        # 이미 끝난 상태로 호출되므로 silent return 하면 사용자에겐 "삭제 성공"
+        # 으로 보이고 DB 행은 남는 역고아 상태. 명시적 예외로 라우터가 500 환원.
+        raise RuntimeError(
+            "DB sessionmaker 가 초기화되지 않았습니다 — USE_DB_MOCK=true 가 아닌데 "
+            "부팅 단계에서 DB 연결이 실패한 상태."
+        )
     async with sessionmaker() as session, session.begin():
         # 자식 테이블 4개 먼저 DELETE — FK 위반 회피. safety_logs 는 user_id 복합 PK
         # 라 persona_id 직접 참조 안 함 → 본 함수에서 정리 대상 아님.

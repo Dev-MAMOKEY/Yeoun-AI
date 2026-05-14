@@ -475,15 +475,34 @@ async def delete_persona(
         logger.exception("페르소나 FS 경로 가드 차단: persona=%s", persona_id)
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"code": "DELETE_FAILED", "message": "내부 경로 검증 실패."},
+            detail={"code": "FS_DELETE_FAILED", "message": "내부 경로 검증 실패."},
         )
     except OSError as exc:
         logger.exception("FS 삭제 실패, DB 변경 보류: persona=%s", persona_id)
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"code": "DELETE_FAILED", "message": f"파일 정리 실패: {type(exc).__name__}"},
+            detail={"code": "FS_DELETE_FAILED", "message": f"파일 정리 실패: {type(exc).__name__}"},
         )
 
     # 2) DB 삭제 — mock 은 dict pop, 실 DB 는 CASCADE 트랜잭션.
-    await repository.delete_persona_tx(persona_id)
+    #    FS 는 이미 정리됐으므로 여기서 예외가 나오면 역고아 상태 (FS 없음 + DB 있음).
+    #    code 를 FS_DELETE_FAILED 와 분리해 호출자(Spring) 가 재시도/알림 정책을
+    #    원인별로 구분할 수 있게 한다.
+    try:
+        await repository.delete_persona_tx(persona_id)
+    except Exception as exc:
+        logger.exception(
+            "DB DELETE 실패 — FS 는 이미 정리됨, 수동 DB 정리 필요: persona_id=%s",
+            persona_id,
+        )
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "code": "DB_DELETE_FAILED",
+                "message": (
+                    "DB 삭제 실패 — 파일은 정리됐으나 DB 행이 남아 있습니다. "
+                    f"운영자가 수동 정리해야 합니다 ({type(exc).__name__})."
+                ),
+            },
+        )
     return ok(None)
