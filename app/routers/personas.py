@@ -390,7 +390,7 @@ async def get_status(
     ),
     dependencies=[Depends(require_internal_token)],
     responses={
-        200: {"description": "조회 성공 (status 가 ready 가 아니면 클립 목록이 비어 있을 수 있음)."},
+        200: {"description": "조회 성공 (status 가 READY 가 아니면 클립 목록이 비어 있을 수 있음)."},
         401: {"description": "토큰이 없거나 유효하지 않음 (`UNAUTHORIZED`)."},
         404: {"description": "페르소나 없음 (`NOT_FOUND`)."},
     },
