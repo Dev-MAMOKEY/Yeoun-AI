@@ -69,9 +69,16 @@ class GemmaLLM:
         *,
         bf16_path: str | None,
         gpu_enabled: bool,
+        gpu_max_memory: str = "12GiB",
+        cpu_max_memory: str = "32GiB",
     ) -> None:
         self._bf16_path = bf16_path
         self._gpu_enabled = gpu_enabled
+        # accelerate device_map="auto" + max_memory 로 Gemma 의 일부 레이어를 CPU RAM
+        # 으로 자동 오프로드. 24GB GPU 에서 Ditto subprocess(피크 6~8GB) + OmniVoice
+        # (~2GB) 와 공존 가능하도록 워커 GPU 점유를 명시적으로 제한.
+        self._gpu_max_memory = gpu_max_memory
+        self._cpu_max_memory = cpu_max_memory
         self._status: LlmStatus = "not_loaded"
         self._model = None
         self._processor = None
@@ -113,14 +120,21 @@ class GemmaLLM:
         import torch
         from transformers import AutoProcessor
 
-        logger.info("Gemma BF16 로드 시작: %s", path)
+        logger.info(
+            "Gemma BF16 로드 시작: %s (gpu_max=%s, cpu_max=%s)",
+            path, self._gpu_max_memory, self._cpu_max_memory,
+        )
         self._processor = AutoProcessor.from_pretrained(path)
         self._model = _AutoModel.from_pretrained(
             path,
             device_map="auto",
+            max_memory={0: self._gpu_max_memory, "cpu": self._cpu_max_memory},
             dtype=torch.bfloat16,
         )
-        logger.info("Gemma BF16 로드 완료")
+        # 실제 오프로드가 의도대로 적용됐는지(레이어가 cuda:0/cpu 로 어떻게 분산됐는지)
+        # 운영자가 한 줄로 확인 가능하도록 로드 완료 시점에 device map 덤프.
+        device_map = getattr(self._model, "hf_device_map", None)
+        logger.info("Gemma BF16 로드 완료 (hf_device_map=%s)", device_map)
 
     async def unload(self) -> None:
         """모델 자원을 해제. 더미 모드면 no-op."""
@@ -181,7 +195,7 @@ class GemmaLLM:
             return_dict=True,
             return_tensors="pt",
             add_generation_prompt=True,
-        ).to(self._model.device)  # type: ignore[union-attr]
+        ).to("cuda:0")  # type: ignore[union-attr]  # device_map="auto" 오프로드 모델의 model.device 가 meta 일 수 있어 명시적 cuda:0
         input_len = inputs["input_ids"].shape[-1]
         outputs = self._model.generate(  # type: ignore[union-attr]
             **inputs,
@@ -244,7 +258,7 @@ class GemmaLLM:
             return_dict=True,
             return_tensors="pt",
             add_generation_prompt=True,
-        ).to(self._model.device)  # type: ignore[union-attr]
+        ).to("cuda:0")  # type: ignore[union-attr]  # device_map="auto" 오프로드 모델의 model.device 가 meta 일 수 있어 명시적 cuda:0
 
         streamer = TextIteratorStreamer(
             self._processor.tokenizer,  # type: ignore[union-attr]
