@@ -211,18 +211,18 @@ async def insert_persona_voice_asset(
 
 async def insert_persona_idle_clip(
     *,
-    key: UUID,
+    clip_id: UUID,
     persona_id: UUID,
     sequence_order: int,
     filesystem_path: str,
 ) -> None:
-    """`persona_idle_clips` 신규 행 삽입. PK 컬럼명은 ERD 그대로 `"Key"` 대문자 인용 식별자."""
+    """`persona_idle_clips` 신규 행 삽입. 실 DB 는 ERD 의 `"Key"` 가 아니라 `clip_id` 사용."""
     settings = get_settings()
     if settings.use_db_mock:
         async with _get_mock_lock():
             _mock_idle_clips.append(
                 {
-                    "Key": key,
+                    "clip_id": clip_id,
                     "persona_id": persona_id,
                     "sequence_order": sequence_order,
                     "filesystem_path": filesystem_path,
@@ -236,11 +236,11 @@ async def insert_persona_idle_clip(
     async with sessionmaker() as session, session.begin():
         await session.execute(
             text(
-                'INSERT INTO persona_idle_clips '
-                '("Key", persona_id, sequence_order, filesystem_path, created_at) '
-                "VALUES (:key, :pid, :seq, :path, NOW())"
+                "INSERT INTO persona_idle_clips "
+                "(clip_id, persona_id, sequence_order, filesystem_path, created_at) "
+                "VALUES (:cid, :pid, :seq, :path, NOW())"
             ),
-            {"key": key, "pid": persona_id, "seq": sequence_order, "path": filesystem_path},
+            {"cid": clip_id, "pid": persona_id, "seq": sequence_order, "path": filesystem_path},
         )
 
 
