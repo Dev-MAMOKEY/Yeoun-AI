@@ -89,7 +89,11 @@ async def update_persona_status(persona_id: UUID, status: str) -> None:
 
 
 async def delete_persona_tx(persona_id: UUID) -> None:
-    """페르소나 1행을 삭제. CASCADE 가 photo/voice/interviews/idle_clips 정리.
+    """페르소나 1행 + 자식 4개 테이블의 참조 행을 한 트랜잭션 안에서 삭제.
+
+    실 DB DDL 이 자식 테이블의 FK 에 `ON DELETE CASCADE` 를 두지 않아 부모만 바로
+    삭제하면 `ForeignKeyViolationError`. 따라서 본 함수가 자식부터 명시적 CASCADE.
+    `safety_logs` 는 `user_id` 복합 PK 라 persona_id 직접 참조 안 함 → 제외.
 
     파일시스템 자원 정리는 라우터 레이어에서 본 함수 호출 전에 수행 (FS 실패 시
     DB 변경 보류 — 고아 행 방지).
@@ -97,14 +101,36 @@ async def delete_persona_tx(persona_id: UUID) -> None:
     settings = get_settings()
     if settings.use_db_mock:
         async with _get_mock_lock():
-            _mock_personas.pop(persona_id, None)
+            # 실 DB 분기와 같은 자식→부모 순서로 정리해 두 분기의 의도 비교 용이.
             _mock_interviews.pop(persona_id, None)
+            _mock_photo_assets[:] = [a for a in _mock_photo_assets if a.get("persona_id") != persona_id]
+            _mock_voice_assets[:] = [a for a in _mock_voice_assets if a.get("persona_id") != persona_id]
+            _mock_idle_clips[:] = [c for c in _mock_idle_clips if c.get("persona_id") != persona_id]
+            _mock_personas.pop(persona_id, None)
         return
 
     sessionmaker = get_sessionmaker()
     if sessionmaker is None:
         return
     async with sessionmaker() as session, session.begin():
+        # 자식 테이블 4개 먼저 DELETE — FK 위반 회피. safety_logs 는 user_id 복합 PK
+        # 라 persona_id 직접 참조 안 함 → 본 함수에서 정리 대상 아님.
+        await session.execute(
+            text("DELETE FROM persona_interviews WHERE persona_id = :pid"),
+            {"pid": persona_id},
+        )
+        await session.execute(
+            text("DELETE FROM persona_photo_assets WHERE persona_id = :pid"),
+            {"pid": persona_id},
+        )
+        await session.execute(
+            text("DELETE FROM persona_voice_assets WHERE persona_id = :pid"),
+            {"pid": persona_id},
+        )
+        await session.execute(
+            text("DELETE FROM persona_idle_clips WHERE persona_id = :pid"),
+            {"pid": persona_id},
+        )
         await session.execute(
             text("DELETE FROM personas WHERE personas_id = :pid"),
             {"pid": persona_id},
