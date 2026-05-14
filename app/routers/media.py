@@ -2,8 +2,8 @@
 
 엔드포인트:
 - GET `/internal/personas/{id}/idle-clips/{idx}` — `idle/{idx}.mp4` 스트리밍
-- GET `/internal/sessions/{sessionId}/messages/{msgId}/media?kind=audio|video`
-   — `speak/{sessionId}/{msgId}.{wav,mp4}` 스트리밍
+- GET `/internal/sessions/{sessionId}/messages/{msgId}/media`
+   — `speak/{sessionId}/{msgId}.mp4` 스트리밍 (오디오+비디오 합본)
 
 HTTP Range 헤더를 지원해 영상 시킹·부분 다운로드가 가능하다. 외부에서 들어온
 경로 인자는 `safe_resolve` 로 PERSONA_DIR 밖 탈출을 차단.
@@ -12,7 +12,7 @@ HTTP Range 헤더를 지원해 영상 시킹·부분 다운로드가 가능하�
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi import status as http_status
 from fastapi.responses import StreamingResponse
 
@@ -30,7 +30,6 @@ from ..storage.filesystem import (
 router = APIRouter(prefix="/internal", tags=["media"])
 
 _VIDEO_MEDIA_TYPE = "video/mp4"
-_AUDIO_MEDIA_TYPE = "audio/wav"
 _FULL_CHUNK = 64 * 1024
 
 
@@ -126,13 +125,13 @@ async def get_idle_clip(
     "/sessions/{session_id}/messages/{message_id}/media",
     summary="세션 메시지 미디어 스트리밍",
     description=(
-        "세션 메시지의 TTS wav(`kind=audio`) 또는 Ditto mp4(`kind=video`) 를 송출한다. "
+        "세션 메시지의 Ditto mp4(오디오+비디오 합본) 를 송출한다. "
         "세션이 종료되어 메모리에서 사라지면 404. HTTP Range 지원."
     ),
     dependencies=[Depends(require_internal_token)],
     responses={
-        200: {"description": "전체 미디어 응답."},
-        206: {"description": "Range 부분 응답."},
+        200: {"description": "전체 mp4 응답.", "content": {"video/mp4": {}}},
+        206: {"description": "Range 부분 응답.", "content": {"video/mp4": {}}},
         401: {"description": "토큰이 없거나 유효하지 않음 (`UNAUTHORIZED`)."},
         404: {"description": "세션·메시지 없음 (`NOT_FOUND`)."},
         416: {"description": "Range 가 파일 크기 밖 (`RANGE_NOT_SATISFIABLE`)."},
@@ -143,7 +142,6 @@ async def get_session_media(
     session_id: UUID,
     message_id: UUID,
     request: Request,
-    kind: str = Query(..., pattern="^(audio|video)$", description="`audio` (wav) 또는 `video` (mp4)."),
     settings: Settings = Depends(get_settings),
 ) -> StreamingResponse:
     store: SessionStore | None = getattr(request.app.state, "session_store", None)
@@ -159,15 +157,13 @@ async def get_session_media(
             detail={"code": "NOT_FOUND", "message": f"세션을 찾을 수 없습니다: {session_id}"},
         )
 
-    suffix = "wav" if kind == "audio" else "mp4"
-    media_type = _AUDIO_MEDIA_TYPE if kind == "audio" else _VIDEO_MEDIA_TYPE
     try:
         path = safe_resolve(
             settings.persona_dir,
             str(session.persona_id),
             "speak",
             str(session_id),
-            f"{message_id}.{suffix}",
+            f"{message_id}.mp4",
         )
     except PermissionError as exc:
         raise HTTPException(
@@ -177,6 +173,6 @@ async def get_session_media(
     if not path.is_file():
         raise HTTPException(
             status_code=http_status.HTTP_404_NOT_FOUND,
-            detail={"code": "NOT_FOUND", "message": f"미디어 파일이 없습니다: {message_id}.{suffix}"},
+            detail={"code": "NOT_FOUND", "message": f"미디어 파일이 없습니다: {message_id}.mp4"},
         )
-    return _stream_response(path, request.headers.get("range"), media_type)
+    return _stream_response(path, request.headers.get("range"), _VIDEO_MEDIA_TYPE)
