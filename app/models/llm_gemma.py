@@ -131,7 +131,10 @@ class GemmaLLM:
             max_memory={0: self._gpu_max_memory, "cpu": self._cpu_max_memory},
             dtype=torch.bfloat16,
         )
-        logger.info("Gemma BF16 로드 완료")
+        # 실제 오프로드가 의도대로 적용됐는지(레이어가 cuda:0/cpu 로 어떻게 분산됐는지)
+        # 운영자가 한 줄로 확인 가능하도록 로드 완료 시점에 device map 덤프.
+        device_map = getattr(self._model, "hf_device_map", None)
+        logger.info("Gemma BF16 로드 완료 (hf_device_map=%s)", device_map)
 
     async def unload(self) -> None:
         """모델 자원을 해제. 더미 모드면 no-op."""
@@ -192,7 +195,7 @@ class GemmaLLM:
             return_dict=True,
             return_tensors="pt",
             add_generation_prompt=True,
-        ).to(self._model.device)  # type: ignore[union-attr]
+        ).to("cuda:0")  # type: ignore[union-attr]  # device_map="auto" 오프로드 모델의 model.device 가 meta 일 수 있어 명시적 cuda:0
         input_len = inputs["input_ids"].shape[-1]
         outputs = self._model.generate(  # type: ignore[union-attr]
             **inputs,
@@ -255,7 +258,7 @@ class GemmaLLM:
             return_dict=True,
             return_tensors="pt",
             add_generation_prompt=True,
-        ).to(self._model.device)  # type: ignore[union-attr]
+        ).to("cuda:0")  # type: ignore[union-attr]  # device_map="auto" 오프로드 모델의 model.device 가 meta 일 수 있어 명시적 cuda:0
 
         streamer = TextIteratorStreamer(
             self._processor.tokenizer,  # type: ignore[union-attr]
