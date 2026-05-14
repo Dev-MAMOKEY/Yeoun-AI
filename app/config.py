@@ -57,6 +57,20 @@ class Settings(BaseSettings):
             "자동으로 다운로드·캐시한다. GPU_ENABLED=true 인데 None 이면 부팅 실패."
         ),
     )
+    llm_gpu_max_memory: str = Field(
+        "12GiB",
+        description=(
+            "Gemma 모델 GPU 점유 한도. accelerate `device_map=\"auto\"` 의 max_memory 인자로 "
+            "전달돼 한도를 넘는 레이어는 CPU RAM 으로 자동 오프로드. Ditto subprocess 와 "
+            "OmniVoice 가 공존하는 24GB GPU 에서 12GiB 가 보수적 안전마진. 단위: '12GiB', '13000MiB'."
+        ),
+    )
+    llm_cpu_max_memory: str = Field(
+        "32GiB",
+        description=(
+            "Gemma 모델 CPU RAM 오프로드 한도. 시스템 가용 RAM 의 절반 이내 권장."
+        ),
+    )
 
     # --- TTS 가중치 경로 --------------------------------------------------
     tts_model_path: str | None = Field(
