@@ -245,7 +245,7 @@ async def process_persona(
             except ValueError:
                 continue
             await repository.insert_persona_idle_clip(
-                key=_uuid4(),
+                clip_id=_uuid4(),
                 persona_id=persona_id,
                 sequence_order=seq,
                 filesystem_path=str(clip_path),
