@@ -36,8 +36,8 @@ class PersonaStatusData(BaseModel):
     )
     status: str = Field(
         ...,
-        description="DB 상의 페르소나 status — created/processing/ready/failed.",
-        examples=["ready"],
+        description="DB 상의 페르소나 status — DRAFT/PROCESSING/READY/FAILED.",
+        examples=["READY"],
     )
     step: ProcessingStep | None = Field(
         None,
@@ -76,7 +76,7 @@ class IdleClipsData(BaseModel):
     persona_id: UUID = Field(..., description="페르소나 PK.")
     clips: list[IdleClipMeta] = Field(
         ...,
-        description="idle 클립 메타 목록. status=`ready` 일 때 보통 2개.",
+        description="idle 클립 메타 목록. status=`READY` 일 때 보통 2개.",
     )
 
 
