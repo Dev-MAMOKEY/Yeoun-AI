@@ -72,7 +72,7 @@ def _service_state(request: Request) -> tuple[ModelRegistry, SessionStore]:
     responses={
         401: {"description": "토큰이 없거나 유효하지 않음 (`UNAUTHORIZED`)."},
         404: {"description": "페르소나 없음 (`NOT_FOUND`)."},
-        409: {"description": "페르소나가 ready 상태가 아님 (`CONFLICT`)."},
+        409: {"description": "페르소나가 READY 상태가 아님 (`CONFLICT`)."},
         503: {"description": "ModelRegistry 또는 SessionStore 가 부팅 전 (`SERVICE_UNAVAILABLE`)."},
     },
 )
