@@ -195,6 +195,14 @@ async def process_message(
                 audio_path=str(wav_path),
                 output_path=str(mp4_path),
             )
+
+        # 명세 변경(미디어 라우트의 `kind` 쿼리 제거, 클라이언트는 mp4 합본만 가져감)
+        # 에 따라 TTS 중간 wav 는 더 이상 노출 자원이 아니라 디스크 누수만 남김.
+        # render_speak 완료 직후 정리. missing_ok 으로 동시 정리 race 안전.
+        try:
+            wav_path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("TTS 중간 wav 정리 실패: %s", wav_path)
     except Exception as exc:  # noqa: BLE001 — 합성 실패는 SSE 에러로 환원
         logger.exception("미디어 합성 실패: session=%s", session.session_id)
         # TTS 성공 후 Ditto 실패 시 wav 가 남아 디스크에 누적되는 케이스 정리.

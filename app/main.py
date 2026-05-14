@@ -125,7 +125,7 @@ DELETE /internal/personas/{id}                  → DB+FS 정리 (PROCESSING 중
 POST /internal/sessions/start                                    → session_id
 POST /internal/sessions/{id}/message (multipart audio)           → SSE 스트림
 POST /internal/sessions/{id}/end                                 → 메모리·speak 폐기
-GET  /internal/sessions/{id}/messages/{msg}/media?kind=audio|video → wav/mp4 (Range)
+GET  /internal/sessions/{id}/messages/{msg}/media → mp4 (오디오+비디오 합본, Range 지원)
 ```
 
 ### SSE 이벤트 카탈로그

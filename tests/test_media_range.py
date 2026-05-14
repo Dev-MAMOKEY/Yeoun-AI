@@ -192,13 +192,12 @@ def test_get_idle_clip_invalid_index_404(media_client):
 # --- session media 라우트 --------------------------------------------------
 
 
-def _seed_session(client, persona_dir: Path, persona_id: UUID, session_id: UUID, message_id: UUID, *, video: bool = True) -> bytes:
-    """speak/{sid}/{mid}.{mp4|wav} 시드 + 라우터에서 store.get 통과하도록 세션 등록."""
-    suffix = "mp4" if video else "wav"
+def _seed_session(client, persona_dir: Path, persona_id: UUID, session_id: UUID, message_id: UUID) -> bytes:
+    """speak/{sid}/{mid}.mp4 시드 + 라우터에서 store.get 통과하도록 세션 등록."""
     speak_dir = persona_dir / str(persona_id) / "speak" / str(session_id)
     speak_dir.mkdir(parents=True)
     payload = b"\x11" * 500 + b"VIDEO"
-    (speak_dir / f"{message_id}.{suffix}").write_bytes(payload)
+    (speak_dir / f"{message_id}.mp4").write_bytes(payload)
     # SessionStore 에 등록 — TestClient lifespan 안에서 app.state.session_store 존재.
     store = client.app.state.session_store
     store.create(
@@ -217,26 +216,25 @@ def _seed_session(client, persona_dir: Path, persona_id: UUID, session_id: UUID,
 def test_get_session_media_full_200(media_client):
     client, persona_dir = media_client
     pid, sid, mid = uuid4(), uuid4(), uuid4()
-    payload = _seed_session(client, persona_dir, pid, sid, mid, video=True)
+    payload = _seed_session(client, persona_dir, pid, sid, mid)
 
     res = client.get(
         f"/internal/sessions/{sid}/messages/{mid}/media",
-        params={"kind": "video"},
         headers={"Authorization": f"Bearer {TEST_TOKEN}"},
     )
     assert res.status_code == 200
     assert res.headers["accept-ranges"] == "bytes"
+    assert res.headers["content-type"] == "video/mp4"
     assert res.content == payload
 
 
 def test_get_session_media_range_206(media_client):
     client, persona_dir = media_client
     pid, sid, mid = uuid4(), uuid4(), uuid4()
-    payload = _seed_session(client, persona_dir, pid, sid, mid, video=True)
+    payload = _seed_session(client, persona_dir, pid, sid, mid)
 
     res = client.get(
         f"/internal/sessions/{sid}/messages/{mid}/media",
-        params={"kind": "video"},
         headers={"Authorization": f"Bearer {TEST_TOKEN}", "Range": "bytes=0-49"},
     )
     assert res.status_code == 206
@@ -244,36 +242,10 @@ def test_get_session_media_range_206(media_client):
     assert res.content == payload[:50]
 
 
-def test_get_session_media_audio_kind(media_client):
-    client, persona_dir = media_client
-    pid, sid, mid = uuid4(), uuid4(), uuid4()
-    payload = _seed_session(client, persona_dir, pid, sid, mid, video=False)
-
-    res = client.get(
-        f"/internal/sessions/{sid}/messages/{mid}/media",
-        params={"kind": "audio"},
-        headers={"Authorization": f"Bearer {TEST_TOKEN}"},
-    )
-    assert res.status_code == 200
-    assert res.headers["content-type"].startswith("audio/")
-    assert res.content == payload
-
-
 def test_get_session_media_404_unknown_session(media_client):
     client, _ = media_client
     res = client.get(
         f"/internal/sessions/{uuid4()}/messages/{uuid4()}/media",
-        params={"kind": "video"},
         headers={"Authorization": f"Bearer {TEST_TOKEN}"},
     )
     assert res.status_code == 404
-
-
-def test_get_session_media_invalid_kind_422(media_client):
-    client, _ = media_client
-    res = client.get(
-        f"/internal/sessions/{uuid4()}/messages/{uuid4()}/media",
-        params={"kind": "subtitle"},
-        headers={"Authorization": f"Bearer {TEST_TOKEN}"},
-    )
-    assert res.status_code == 422
