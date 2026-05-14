@@ -29,6 +29,10 @@ from .models import InterviewAnswer, PersonaRecord, SafetyEvent
 _mock_personas: dict[UUID, PersonaRecord] = {}
 _mock_interviews: dict[UUID, list[InterviewAnswer]] = {}
 _mock_safety_logs: list[SafetyEvent] = []
+# 자원·idle 메타는 테스트 검증용으로 단순 리스트만 보관 (Pydantic 모델 미정의).
+_mock_photo_assets: list[dict] = []
+_mock_voice_assets: list[dict] = []
+_mock_idle_clips: list[dict] = []
 _mock_lock: asyncio.Lock | None = None
 
 
@@ -131,6 +135,115 @@ async def get_persona_interviews(persona_id: UUID) -> list[InterviewAnswer]:
         return [InterviewAnswer(**dict(r)) for r in rows]
 
 
+# --- 페르소나 자원 메타 -----------------------------------------------------
+async def insert_persona_photo_asset(
+    *,
+    photo_asset_id: UUID,
+    persona_id: UUID,
+    filesystem_path: str,
+) -> None:
+    """`persona_photo_assets` 신규 행 삽입. 같은 파일명 재업로드 대비 dedup 은 호출자 책임."""
+    settings = get_settings()
+    if settings.use_db_mock:
+        async with _get_mock_lock():
+            _mock_photo_assets.append(
+                {
+                    "photo_asset_id": photo_asset_id,
+                    "persona_id": persona_id,
+                    "filesystem_path": filesystem_path,
+                }
+            )
+        return
+
+    sessionmaker = get_sessionmaker()
+    if sessionmaker is None:
+        return
+    async with sessionmaker() as session, session.begin():
+        await session.execute(
+            text(
+                "INSERT INTO persona_photo_assets "
+                "(photo_asset_id, persona_id, filesystem_path, created_at) "
+                "VALUES (:aid, :pid, :path, NOW())"
+            ),
+            {"aid": photo_asset_id, "pid": persona_id, "path": filesystem_path},
+        )
+
+
+async def insert_persona_voice_asset(
+    *,
+    voice_assest_id: UUID,
+    persona_id: UUID,
+    original_name: str,
+    filesystem_path: str,
+) -> None:
+    """`persona_voice_assets` 신규 행 삽입. ERD 오타 `voice_assest_id` 그대로."""
+    settings = get_settings()
+    if settings.use_db_mock:
+        async with _get_mock_lock():
+            _mock_voice_assets.append(
+                {
+                    "voice_assest_id": voice_assest_id,
+                    "persona_id": persona_id,
+                    "original_name": original_name,
+                    "filesystem_path": filesystem_path,
+                }
+            )
+        return
+
+    sessionmaker = get_sessionmaker()
+    if sessionmaker is None:
+        return
+    async with sessionmaker() as session, session.begin():
+        await session.execute(
+            text(
+                "INSERT INTO persona_voice_assets "
+                "(voice_assest_id, persona_id, original_name, filesystem_path, uploaded_at) "
+                "VALUES (:aid, :pid, :name, :path, NOW())"
+            ),
+            {
+                "aid": voice_assest_id,
+                "pid": persona_id,
+                "name": original_name,
+                "path": filesystem_path,
+            },
+        )
+
+
+async def insert_persona_idle_clip(
+    *,
+    key: UUID,
+    persona_id: UUID,
+    sequence_order: int,
+    filesystem_path: str,
+) -> None:
+    """`persona_idle_clips` 신규 행 삽입. PK 컬럼명은 ERD 그대로 `"Key"` 대문자 인용 식별자."""
+    settings = get_settings()
+    if settings.use_db_mock:
+        async with _get_mock_lock():
+            _mock_idle_clips.append(
+                {
+                    "Key": key,
+                    "persona_id": persona_id,
+                    "sequence_order": sequence_order,
+                    "filesystem_path": filesystem_path,
+                }
+            )
+        return
+
+    sessionmaker = get_sessionmaker()
+    if sessionmaker is None:
+        return
+    async with sessionmaker() as session, session.begin():
+        await session.execute(
+            text(
+                'INSERT INTO persona_idle_clips '
+                '("Key", persona_id, sequence_order, filesystem_path, created_at) '
+                "VALUES (:key, :pid, :seq, :path, NOW())"
+            ),
+            {"key": key, "pid": persona_id, "seq": sequence_order, "path": filesystem_path},
+        )
+
+
 # --- 안전 로그 ---------------------------------------------------------------
 async def insert_safety_log(
     *,
@@ -206,9 +319,36 @@ async def mock_get_safety_logs() -> list[SafetyEvent]:
         return list(_mock_safety_logs)
 
 
+async def mock_get_photo_assets() -> list[dict]:
+    """테스트 검증용: mock photo asset 스냅샷."""
+    if not get_settings().use_db_mock:
+        raise RuntimeError("mock_get_photo_assets 는 USE_DB_MOCK=true 일 때만 호출 가능.")
+    async with _get_mock_lock():
+        return list(_mock_photo_assets)
+
+
+async def mock_get_voice_assets() -> list[dict]:
+    """테스트 검증용: mock voice asset 스냅샷."""
+    if not get_settings().use_db_mock:
+        raise RuntimeError("mock_get_voice_assets 는 USE_DB_MOCK=true 일 때만 호출 가능.")
+    async with _get_mock_lock():
+        return list(_mock_voice_assets)
+
+
+async def mock_get_idle_clips() -> list[dict]:
+    """테스트 검증용: mock idle clip 스냅샷."""
+    if not get_settings().use_db_mock:
+        raise RuntimeError("mock_get_idle_clips 는 USE_DB_MOCK=true 일 때만 호출 가능.")
+    async with _get_mock_lock():
+        return list(_mock_idle_clips)
+
+
 async def _reset_mock() -> None:
     """테스트 격리: 모든 mock 저장소를 비운다."""
     async with _get_mock_lock():
         _mock_personas.clear()
         _mock_interviews.clear()
         _mock_safety_logs.clear()
+        _mock_photo_assets.clear()
+        _mock_voice_assets.clear()
+        _mock_idle_clips.clear()
