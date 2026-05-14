@@ -15,6 +15,7 @@ ERD 의 PostgreSQL 스키마에 직접 동작하는 SQLAlchemy async raw SQL 구
 import asyncio
 import logging
 from datetime import datetime
+from typing import NoReturn
 from uuid import UUID
 
 from sqlalchemy import text
@@ -24,6 +25,47 @@ from .engine import get_sessionmaker
 from .models import InterviewAnswer, PersonaRecord, SafetyEvent
 
 logger = logging.getLogger("yeoun")
+
+
+# 로그 redact 대상 — 명세서 「안전 정책: 원본 메시지·비식별 패턴 모니터링 전용」 에
+# 따라 식별자(UUID PK) 는 운영 로그에 평문 노출 금지. 부팅 결함 진단에 필요한 메타
+# (event_type·status·sequence_order 등) 는 보존.
+_PII_LOG_KEYS = frozenset(
+    {
+        "user_id",
+        "persona_id",
+        "logs_id",
+        "photo_asset_id",
+        "voice_asset_id",
+        "clip_id",
+    }
+)
+
+
+def _raise_db_uninitialized(func_name: str, **context: object) -> NoReturn:
+    """쓰기 함수의 `sessionmaker is None` 분기 공통 처리.
+
+    silent return 이 부팅 결함을 가리면 호출자(process_persona 등) 가 `status='FAILED'`
+    같은 핵심 갱신을 못 한 채 정상 종료한 것처럼 보여 DB 가 `PROCESSING` 으로 굳어지는
+    회귀 발생. 본 헬퍼가 ERROR 로그(운영자 즉시 인지) + RuntimeError(호출자 흐름에서
+    잡혀 사용자에게 의미 있는 응답으로 환원) 두 가지를 수행. 읽기 함수(get_*) 는
+    빈 결과 반환이 graceful degradation 이라 본 헬퍼를 호출하지 않는다.
+
+    context 에 포함된 식별자(UUID PK) 키는 명세서 안전 정책에 따라 평문 로그 노출
+    금지 — `<redacted>` 로 치환 후 운영자 진단용 메타(event_type 등) 만 보존.
+    """
+    safe_context = {
+        key: ("<redacted>" if key in _PII_LOG_KEYS else value)
+        for key, value in context.items()
+    }
+    logger.error(
+        "%s sessionmaker 미초기화 (USE_DB_MOCK=false 부팅 결함): context=%s",
+        func_name, safe_context,
+    )
+    raise RuntimeError(
+        f"{func_name}: DB sessionmaker 가 초기화되지 않았습니다 — "
+        "USE_DB_MOCK=true 가 아닌데 부팅 단계에서 DB 연결이 실패한 상태."
+    )
 
 # --- 프로세스 인메모리 mock 저장소 -------------------------------------------
 # 워커 1개 가정. asyncio.Lock 으로 동시 갱신 직렬화.
@@ -83,15 +125,9 @@ async def update_persona_status(persona_id: UUID, status: str) -> None:
 
     sessionmaker = get_sessionmaker()
     if sessionmaker is None:
-        # silent return 자체는 다른 함수(insert_*/get_*) 와의 일관성 위해 유지.
-        # 단 process_persona 의 cancel/except 핸들러가 status='FAILED' 갱신 시 본 silent 가
-        # 가려지면 DB 상태가 'PROCESSING' 으로 굳어져 후속 업로드 영구 409 (별도 후속 이슈).
-        # 즉시 가시화로 운영자가 부팅 결함을 빠르게 인지할 수 있도록 ERROR 로그만 추가.
-        logger.error(
-            "update_persona_status silent fail — sessionmaker 미초기화 (persona_id=%s, status=%s)",
-            persona_id, status,
+        _raise_db_uninitialized(
+            "update_persona_status", persona_id=persona_id, status=status,
         )
-        return
     async with sessionmaker() as session, session.begin():
         await session.execute(
             text("UPDATE personas SET status = :s WHERE personas_id = :pid"),
@@ -122,13 +158,7 @@ async def delete_persona_tx(persona_id: UUID) -> None:
 
     sessionmaker = get_sessionmaker()
     if sessionmaker is None:
-        # 다른 함수는 silent return 으로 부팅 결함을 가렸지만 DELETE 는 FS 정리가
-        # 이미 끝난 상태로 호출되므로 silent return 하면 사용자에겐 "삭제 성공"
-        # 으로 보이고 DB 행은 남는 역고아 상태. 명시적 예외로 라우터가 500 환원.
-        raise RuntimeError(
-            "DB sessionmaker 가 초기화되지 않았습니다 — USE_DB_MOCK=true 가 아닌데 "
-            "부팅 단계에서 DB 연결이 실패한 상태."
-        )
+        _raise_db_uninitialized("delete_persona_tx", persona_id=persona_id)
     async with sessionmaker() as session, session.begin():
         # 자식 테이블 4개 먼저 DELETE — FK 위반 회피. safety_logs 는 user_id 복합 PK
         # 라 persona_id 직접 참조 안 함 → 본 함수에서 정리 대상 아님.
@@ -200,7 +230,10 @@ async def insert_persona_photo_asset(
 
     sessionmaker = get_sessionmaker()
     if sessionmaker is None:
-        return
+        _raise_db_uninitialized(
+            "insert_persona_photo_asset",
+            persona_id=persona_id, photo_asset_id=photo_asset_id,
+        )
     async with sessionmaker() as session, session.begin():
         await session.execute(
             text(
@@ -235,7 +268,10 @@ async def insert_persona_voice_asset(
 
     sessionmaker = get_sessionmaker()
     if sessionmaker is None:
-        return
+        _raise_db_uninitialized(
+            "insert_persona_voice_asset",
+            persona_id=persona_id, voice_asset_id=voice_asset_id,
+        )
     async with sessionmaker() as session, session.begin():
         await session.execute(
             text(
@@ -275,7 +311,10 @@ async def insert_persona_idle_clip(
 
     sessionmaker = get_sessionmaker()
     if sessionmaker is None:
-        return
+        _raise_db_uninitialized(
+            "insert_persona_idle_clip",
+            persona_id=persona_id, clip_id=clip_id, sequence_order=sequence_order,
+        )
     async with sessionmaker() as session, session.begin():
         await session.execute(
             text(
@@ -318,7 +357,10 @@ async def insert_safety_log(
 
     sessionmaker = get_sessionmaker()
     if sessionmaker is None:
-        return
+        _raise_db_uninitialized(
+            "insert_safety_log",
+            logs_id=logs_id, user_id=user_id, event_type=event_type,
+        )
     async with sessionmaker() as session, session.begin():
         await session.execute(
             text(
