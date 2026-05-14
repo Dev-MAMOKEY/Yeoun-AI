@@ -20,7 +20,7 @@ class SessionStartRequest(BaseModel):
     )
     persona_id: UUID = Field(
         ...,
-        description="대상 페르소나 PK — `status='ready'` 인 경우만 시작 가능.",
+        description="대상 페르소나 PK — `status='READY'` 인 경우만 시작 가능.",
         examples=["22222222-2222-2222-2222-222222222222"],
     )
 
