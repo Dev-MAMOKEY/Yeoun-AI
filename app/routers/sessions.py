@@ -65,14 +65,14 @@ def _service_state(request: Request) -> tuple[ModelRegistry, SessionStore]:
     summary="대화 세션 시작",
     description=(
         "페르소나 메타·인터뷰 답변 10개·응답 가이드라인을 시스템 프롬프트로 조립해 "
-        "세션 메모리에 보관한다. status='ready' 아닌 페르소나는 409. 응답 sessionId 는 "
+        "세션 메모리에 보관한다. status='READY' 아닌 페르소나는 409. 응답 sessionId 는 "
         "이후 `/message`·`/end` 호출의 키."
     ),
     dependencies=[Depends(require_internal_token)],
     responses={
         401: {"description": "토큰이 없거나 유효하지 않음 (`UNAUTHORIZED`)."},
         404: {"description": "페르소나 없음 (`NOT_FOUND`)."},
-        409: {"description": "페르소나가 ready 상태가 아님 (`CONFLICT`)."},
+        409: {"description": "페르소나가 READY 상태가 아님 (`CONFLICT`)."},
         503: {"description": "ModelRegistry 또는 SessionStore 가 부팅 전 (`SERVICE_UNAVAILABLE`)."},
     },
 )
@@ -88,12 +88,12 @@ async def start_session(
             status_code=http_status.HTTP_404_NOT_FOUND,
             detail={"code": "NOT_FOUND", "message": f"페르소나를 찾을 수 없습니다: {body.persona_id}"},
         )
-    if record.status != "ready":
+    if record.status != "READY":
         raise HTTPException(
             status_code=http_status.HTTP_409_CONFLICT,
             detail={
                 "code": "CONFLICT",
-                "message": f"페르소나가 ready 상태가 아닙니다 (status={record.status}).",
+                "message": f"페르소나가 READY 상태가 아닙니다 (status={record.status}).",
             },
         )
 

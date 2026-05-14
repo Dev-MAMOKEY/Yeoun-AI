@@ -20,7 +20,7 @@ def _make_persona(persona_id: UUID) -> PersonaRecord:
         owner_user_id=uuid4(),
         name="고인",
         nickname="할아버지",
-        status="ready",
+        status="READY",
         created_at=datetime.now(timezone.utc),
     )
 
@@ -134,7 +134,7 @@ def test_delete_persona_processing_409(delete_client):
     _run(repository._reset_mock())
     rec = _make_persona(pid)
     # status 만 processing 으로 덮어쓰기.
-    rec = rec.model_copy(update={"status": "processing"})
+    rec = rec.model_copy(update={"status": "PROCESSING"})
     _run(repository.mock_seed_persona(rec))
 
     res = client.delete(

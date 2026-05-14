@@ -1,11 +1,11 @@
 """페르소나 생성 백그라운드 파이프라인 (명세서 흐름 A).
 
-업로드 완료된 페르소나(`personas.status='created'`) 에 대해:
+업로드 완료된 페르소나(`personas.status='DRAFT'`) 에 대해:
 1. `/var/persona/{id}/voice/*` 중 가장 새 파일을 선택 → Gemma audio-in 전사 →
    `/var/persona/{id}/voice_ref/ref_text.txt`
 2. OmniVoice ref embedding 추출(가능 시) → `/var/persona/{id}/voice_ref/embedding.pt`
 3. Ditto idle 클립 2개 렌더 → `/var/persona/{id}/idle/{0,1}.mp4`
-4. `personas.status='ready'`. 실패 시 `'failed'` + `error_reason`.
+4. `personas.status='READY'`. 실패 시 `'FAILED'` + `error_reason`.
 
 GPU 자원: 1·2 단계는 `ModelRegistry.gpu_semaphore` (LLM/TTS 공유), 3 단계는
 `ditto_semaphore` (Ditto 전용). 진행률은 `PersonaProcessingStore` 가 워커
@@ -203,7 +203,7 @@ async def process_persona(
     """페르소나 생성 백그라운드 파이프라인의 단일 진입점.
 
     호출자는 FastAPI `BackgroundTasks` 로 즉시 202 응답 후 비동기 실행한다.
-    예외는 본 함수가 잡아 status='failed' 로 마감 — 호출자는 별도 처리 불필요.
+    예외는 본 함수가 잡아 status='FAILED' 로 마감 — 호출자는 별도 처리 불필요.
 
     멱등성: 각 단계 helper 가 이미 존재하는 산출물을 스킵. 워커 재시작 후 재호출
     시에도 안전.
@@ -218,7 +218,7 @@ async def process_persona(
 
     try:
         await store.set_step(persona_id, ProcessingStep.PENDING)
-        await repository.update_persona_status(persona_id, "processing")
+        await repository.update_persona_status(persona_id, "PROCESSING")
 
         # 1. voice 파일 선택
         await store.set_step(persona_id, ProcessingStep.SELECTING_VOICE)
@@ -253,7 +253,7 @@ async def process_persona(
 
         # 5. ready
         await store.set_step(persona_id, ProcessingStep.READY)
-        await repository.update_persona_status(persona_id, "ready")
+        await repository.update_persona_status(persona_id, "READY")
         logger.info("페르소나 생성 완료: %s", persona_id)
     except asyncio.CancelledError:
         # shutdown / 클라이언트 취소 — best-effort 로 status 표시 후 cancel 전파.
@@ -262,7 +262,7 @@ async def process_persona(
             await store.set_step(
                 persona_id, ProcessingStep.FAILED, error_reason="cancelled"
             )
-            await repository.update_persona_status(persona_id, "failed")
+            await repository.update_persona_status(persona_id, "FAILED")
         except Exception:  # noqa: BLE001 — cancel 중 폴백 실패는 무시
             logger.exception("취소 중 상태 갱신 실패")
         raise
@@ -272,6 +272,6 @@ async def process_persona(
         reason = f"{type(exc).__name__}: {exc}"[:500]
         await store.set_step(persona_id, ProcessingStep.FAILED, error_reason=reason)
         try:
-            await repository.update_persona_status(persona_id, "failed")
+            await repository.update_persona_status(persona_id, "FAILED")
         except Exception:  # noqa: BLE001 — 폴백 실패도 로그만
-            logger.exception("update_persona_status('failed') 폴백 실패")
+            logger.exception("update_persona_status('FAILED') 폴백 실패")

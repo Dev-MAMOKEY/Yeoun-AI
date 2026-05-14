@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 class ProcessingStep(str, Enum):
     """페르소나 생성 진행률 단계.
 
-    명세서 항목 `processing.step` 의 도메인. status=`processing` 일 때 어디까지
+    명세서 항목 `processing.step` 의 도메인. status=`PROCESSING` 일 때 어디까지
     왔는지를 클라이언트가 폴링으로 확인할 수 있도록 노출한다.
     """
 
@@ -36,20 +36,20 @@ class PersonaStatusData(BaseModel):
     )
     status: str = Field(
         ...,
-        description="DB 상의 페르소나 status — created/processing/ready/failed.",
-        examples=["ready"],
+        description="DB 상의 페르소나 status — DRAFT/PROCESSING/READY/FAILED.",
+        examples=["READY"],
     )
     step: ProcessingStep | None = Field(
         None,
         description=(
-            "현재 진행률 세부 단계. status=`processing` 일 때만 의미. "
+            "현재 진행률 세부 단계. status=`PROCESSING` 일 때만 의미. "
             "워커 메모리 기반(In-memory PersonaProcessingStore)이라 워커 재시작 시 사라진다."
         ),
         examples=["rendering_idle"],
     )
     error_reason: str | None = Field(
         None,
-        description="status=`failed` 일 때 운영자/Spring 진단용 한국어 에러 요약.",
+        description="status=`FAILED` 일 때 운영자/Spring 진단용 한국어 에러 요약.",
         examples=["FileNotFoundError: voice 디렉토리 없음"],
     )
 
@@ -76,7 +76,7 @@ class IdleClipsData(BaseModel):
     persona_id: UUID = Field(..., description="페르소나 PK.")
     clips: list[IdleClipMeta] = Field(
         ...,
-        description="idle 클립 메타 목록. status=`ready` 일 때 보통 2개.",
+        description="idle 클립 메타 목록. status=`READY` 일 때 보통 2개.",
     )
 
 

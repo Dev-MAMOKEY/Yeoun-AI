@@ -19,8 +19,8 @@ class PersonaRecord(BaseModel):
     status: str = Field(
         ...,
         max_length=20,
-        description="페르소나 생성 진척 상태. created/processing/ready/failed.",
-        examples=["created", "processing", "ready", "failed"],
+        description="페르소나 생성 진척 상태. DRAFT/PROCESSING/READY/FAILED (실 DB `personas_status_check`).",
+        examples=["DRAFT", "PROCESSING", "READY", "FAILED"],
     )
     created_at: datetime = Field(..., description="레코드 생성 시각(UTC).")
 

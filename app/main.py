@@ -116,7 +116,7 @@ POST /internal/personas/{id}/process            → 202 (BackgroundTask)
 GET  /internal/personas/{id}/status             → status·step·error_reason (폴링)
 GET  /internal/personas/{id}/idle-clips         → 2개 클립 메타 (PERSONA_DIR 기준 상대경로)
 GET  /internal/personas/{id}/idle-clips/{idx}   → mp4 스트리밍 (Range 지원)
-DELETE /internal/personas/{id}                  → DB+FS 정리 (processing 중이면 409)
+DELETE /internal/personas/{id}                  → DB+FS 정리 (PROCESSING 중이면 409)
 ```
 
 ## 흐름 B — 대화 세션

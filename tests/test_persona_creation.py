@@ -1,8 +1,8 @@
 """페르소나 생성 백그라운드 파이프라인 더미 모드 스모크 테스트.
 
 GPU_ENABLED=false + USE_DB_MOCK=true 에서 `process_persona` 가 voice/photo 자원을
-받아 ref_text·ref_audio·idle 클립을 생성하고 status='ready' 까지 도달하는지,
-재호출 시 멱등 스킵이 동작하는지, 자원 누락 시 status='failed' + error_reason 이
+받아 ref_text·ref_audio·idle 클립을 생성하고 status='READY' 까지 도달하는지,
+재호출 시 멱등 스킵이 동작하는지, 자원 누락 시 status='FAILED' + error_reason 이
 채워지는지 검증한다.
 """
 
@@ -27,7 +27,7 @@ def _make_persona(persona_id: UUID) -> PersonaRecord:
         owner_user_id=uuid4(),
         name="고인 이름",
         nickname="할아버지",
-        status="created",
+        status="DRAFT",
         created_at=datetime.now(timezone.utc),
     )
 
@@ -88,7 +88,7 @@ async def test_process_persona_dummy_mode_full_flow(tmp_path: Path):
     # status + step
     record = await repository.get_persona(persona_id)
     assert record is not None
-    assert record.status == "ready"
+    assert record.status == "READY"
     state = store.get(persona_id)
     assert state is not None
     assert state.step is ProcessingStep.READY
@@ -155,7 +155,7 @@ async def test_process_persona_failure_marks_failed(tmp_path: Path):
 
     record = await repository.get_persona(persona_id)
     assert record is not None
-    assert record.status == "failed"
+    assert record.status == "FAILED"
     state = store.get(persona_id)
     assert state is not None
     assert state.step is ProcessingStep.FAILED

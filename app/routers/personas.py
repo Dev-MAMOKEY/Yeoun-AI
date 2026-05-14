@@ -73,12 +73,12 @@ async def _ensure_writable_persona(persona_id: UUID) -> None:
             status_code=http_status.HTTP_404_NOT_FOUND,
             detail={"code": "NOT_FOUND", "message": f"페르소나를 찾을 수 없습니다: {persona_id}"},
         )
-    if record.status == "processing":
+    if record.status == "PROCESSING":
         raise HTTPException(
             status_code=http_status.HTTP_409_CONFLICT,
             detail={
                 "code": "CONFLICT",
-                "message": "처리 중 페르소나에는 업로드할 수 없습니다 (status='processing').",
+                "message": "처리 중 페르소나에는 업로드할 수 없습니다 (status='PROCESSING').",
             },
         )
 
@@ -322,7 +322,7 @@ async def start_processing(
         ProcessingStep.READY,
         ProcessingStep.FAILED,
     )
-    if in_progress or record.status in ("processing", "ready"):
+    if in_progress or record.status in ("PROCESSING", "READY"):
         raise HTTPException(
             status_code=http_status.HTTP_409_CONFLICT,
             detail={
@@ -385,12 +385,12 @@ async def get_status(
     response_model=Envelope[IdleClipsData],
     summary="페르소나 idle 클립 메타 조회",
     description=(
-        "`status='ready'` 이후 호출. `/var/persona/{id}/idle/{n}.mp4` 의 메타(인덱스·경로·크기)를 반환. "
+        "`status='READY'` 이후 호출. `/var/persona/{id}/idle/{n}.mp4` 의 메타(인덱스·경로·크기)를 반환. "
         "실제 mp4 스트리밍은 미디어 라우터(`/internal/personas/{id}/idle-clips/{idx}`) 가 담당."
     ),
     dependencies=[Depends(require_internal_token)],
     responses={
-        200: {"description": "조회 성공 (status 가 ready 가 아니면 클립 목록이 비어 있을 수 있음)."},
+        200: {"description": "조회 성공 (status 가 READY 가 아니면 클립 목록이 비어 있을 수 있음)."},
         401: {"description": "토큰이 없거나 유효하지 않음 (`UNAUTHORIZED`)."},
         404: {"description": "페르소나 없음 (`NOT_FOUND`)."},
     },
@@ -457,12 +457,12 @@ async def delete_persona(
     # 진행 중인 페르소나는 삭제 차단 — process_persona 가 voice_ref/idle 생성 중
     # rmtree 진입 시 ENOENT 후 재생성으로 FS/DB 불일치 발생. 운영자가 process
     # 완료(또는 failed) 까지 기다리거나 강제 cancel 인터페이스(후속) 호출 후 재시도.
-    if record.status == "processing":
+    if record.status == "PROCESSING":
         raise HTTPException(
             status_code=http_status.HTTP_409_CONFLICT,
             detail={
                 "code": "CONFLICT",
-                "message": "처리 중 페르소나는 삭제할 수 없습니다 (status='processing').",
+                "message": "처리 중 페르소나는 삭제할 수 없습니다 (status='PROCESSING').",
             },
         )
 
