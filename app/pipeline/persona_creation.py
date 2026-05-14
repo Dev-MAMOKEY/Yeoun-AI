@@ -267,9 +267,17 @@ async def process_persona(
             logger.exception("취소 중 상태 갱신 실패")
         raise
     except Exception as exc:  # noqa: BLE001 — 모든 실패를 failed 로 환원
+        from ..models.talkinghead_ditto import FaceDetectionError
+
         logger.exception("페르소나 생성 실패: %s", persona_id)
         # 클라이언트/운영자에 한국어 요약 노출, 500자 컷.
-        reason = f"{type(exc).__name__}: {exc}"[:500]
+        # FaceDetectionError 같은 사용자 친화 도메인 예외는 타입 prefix 없이
+        # 메시지만 노출 — `RuntimeError: 얼굴 검출 실패: ...` 같은 prefix 가
+        # 사용자 UX 를 깨지 않도록.
+        if isinstance(exc, FaceDetectionError):
+            reason = str(exc)[:500]
+        else:
+            reason = f"{type(exc).__name__}: {exc}"[:500]
         await store.set_step(persona_id, ProcessingStep.FAILED, error_reason=reason)
         try:
             await repository.update_persona_status(persona_id, "FAILED")
