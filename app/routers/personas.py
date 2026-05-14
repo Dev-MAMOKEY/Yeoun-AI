@@ -485,5 +485,23 @@ async def delete_persona(
         )
 
     # 2) DB 삭제 — mock 은 dict pop, 실 DB 는 CASCADE 트랜잭션.
-    await repository.delete_persona_tx(persona_id)
+    #    FS 는 이미 정리됐으므로 여기서 예외가 나오면 역고아 상태 (FS 없음 + DB 있음).
+    #    운영자가 즉시 인지하도록 한국어 로그 + 500 응답으로 환원.
+    try:
+        await repository.delete_persona_tx(persona_id)
+    except Exception as exc:
+        logger.exception(
+            "DB DELETE 실패 — FS 는 이미 정리됨, 수동 DB 정리 필요: persona_id=%s",
+            persona_id,
+        )
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "code": "DELETE_FAILED",
+                "message": (
+                    "DB 삭제 실패 — 파일은 정리됐으나 DB 행이 남아 있습니다. "
+                    f"운영자가 수동 정리해야 합니다 ({type(exc).__name__})."
+                ),
+            },
+        )
     return ok(None)
