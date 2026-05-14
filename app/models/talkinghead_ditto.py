@@ -43,9 +43,13 @@ class DittoTalkingHead:
         cfg_pkl: str | None,
         gpu_enabled: bool,
     ) -> None:
-        self._vendor_dir = vendor_dir
-        self._data_root = data_root
-        self._cfg_pkl = cfg_pkl
+        # 인스턴스 생성 시점(워커 부팅, cwd 명시적) 에 한 번 resolve.
+        # subprocess cwd 를 vendor 디렉토리로 바꿔도 인자 경로가 cwd 안에서 또
+        # append 되어 이중 중첩 → FileNotFoundError 가 나는 문제를 한 곳에서 차단.
+        # load() 와 render_speak() 가 같은 절대경로를 공유해 검증·실행 불일치도 제거.
+        self._vendor_dir = str(Path(vendor_dir).resolve()) if vendor_dir else None
+        self._data_root = str(Path(data_root).resolve()) if data_root else None
+        self._cfg_pkl = str(Path(cfg_pkl).resolve()) if cfg_pkl else None
         self._gpu_enabled = gpu_enabled
         self._status: DittoStatus = "not_loaded"
 
@@ -120,7 +124,7 @@ class DittoTalkingHead:
 
         assert self._vendor_dir and self._data_root and self._cfg_pkl
 
-        vendor = Path(self._vendor_dir).resolve()
+        vendor = Path(self._vendor_dir)
         inference_py = vendor / "inference.py"
         cmd = [
             sys.executable,
