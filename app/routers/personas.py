@@ -217,6 +217,12 @@ async def upload_photo(
         magic_prefixes=_PHOTO_MAGIC_PREFIXES,
         settings=settings,
     )
+    # 자원 메타 등록 — Spring 이 DB 만 보고도 페르소나에 어떤 사진이 매핑됐는지 알 수 있게.
+    await repository.insert_persona_photo_asset(
+        photo_asset_id=uuid4(),
+        persona_id=persona_id,
+        filesystem_path=str(target),
+    )
     return ok(UploadResult(path=f"{persona_id}/photo/{target.name}", size_bytes=size))
 
 
@@ -246,6 +252,7 @@ async def upload_voice(
     settings: Settings = Depends(get_settings),
 ) -> Envelope[UploadResult]:
     await _ensure_writable_persona(persona_id)
+    original_name = file.filename or ""
     target, size = await _save_upload(
         persona_id=persona_id,
         file=file,
@@ -253,6 +260,12 @@ async def upload_voice(
         allowed_content_types=_VOICE_CONTENT_TYPES,
         magic_prefixes=_VOICE_MAGIC_PREFIXES,
         settings=settings,
+    )
+    await repository.insert_persona_voice_asset(
+        voice_assest_id=uuid4(),
+        persona_id=persona_id,
+        original_name=original_name or target.name,
+        filesystem_path=str(target),
     )
     return ok(UploadResult(path=f"{persona_id}/voice/{target.name}", size_bytes=size))
 
