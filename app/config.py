@@ -58,15 +58,16 @@ class Settings(BaseSettings):
         ),
     )
     llm_gpu_max_memory: str = Field(
-        "12GiB",
+        "12GB",
         description=(
             "Gemma 모델 GPU 점유 한도. accelerate `device_map=\"auto\"` 의 max_memory 인자로 "
             "전달돼 한도를 넘는 레이어는 CPU RAM 으로 자동 오프로드. Ditto subprocess 와 "
-            "OmniVoice 가 공존하는 24GB GPU 에서 12GiB 가 보수적 안전마진. 단위: '12GiB', '13000MiB'."
+            "OmniVoice 가 공존하는 24GB GPU 에서 12GB 가 보수적 안전마진. 단위 표기는 "
+            "accelerate 공식 예시 따라 GB(10진수) 사용 — 구버전 GiB 파싱 실패 회피."
         ),
     )
     llm_cpu_max_memory: str = Field(
-        "32GiB",
+        "32GB",
         description=(
             "Gemma 모델 CPU RAM 오프로드 한도. 시스템 가용 RAM 의 절반 이내 권장."
         ),
