@@ -14,10 +14,6 @@ class PersonaRecord(BaseModel):
 
     personas_id: UUID = Field(..., description="페르소나 PK.")
     owner_user_id: UUID = Field(..., description="페르소나를 소유한 사용자 PK.")
-    id: UUID | None = Field(
-        None,
-        description="외부 시스템(Spring Boot 도메인 등)에서 매핑하는 별도 식별자. 본 엔진에선 읽기만 함.",
-    )
     name: str = Field(..., max_length=100, description="고인의 호칭/이름.")
     nickname: str = Field(..., max_length=50, description="대화에서 사용하는 호칭.")
     status: str = Field(

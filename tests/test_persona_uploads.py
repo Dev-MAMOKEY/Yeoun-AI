@@ -20,7 +20,6 @@ def _make_persona(persona_id: UUID, status: str = "created") -> PersonaRecord:
     return PersonaRecord(
         personas_id=persona_id,
         owner_user_id=uuid4(),
-        id=None,
         name="고인",
         nickname="할아버지",
         status=status,
@@ -71,6 +70,10 @@ def test_upload_photo_200_writes_file(upload_client):
     assert data["path"] == f"{pid}/photo/face.jpg"
     assert data["size_bytes"] == len(payload)
     assert (persona_dir / str(pid) / "photo" / "face.jpg").read_bytes() == payload
+    # persona_photo_assets 메타 행 1건 INSERT.
+    assets = _run(repository.mock_get_photo_assets())
+    assert len(assets) == 1
+    assert assets[0]["persona_id"] == pid
 
 
 def test_upload_voice_200_writes_file(upload_client):
@@ -88,6 +91,10 @@ def test_upload_voice_200_writes_file(upload_client):
     )
     assert res.status_code == 200
     assert (persona_dir / str(pid) / "voice" / "ref.wav").read_bytes() == payload
+    # persona_voice_assets 메타 행 1건 INSERT — original_name 보존 검증.
+    assets = _run(repository.mock_get_voice_assets())
+    assert len(assets) == 1
+    assert assets[0]["original_name"] == "ref.wav"
 
 
 # --- 에러 분기 ---------------------------------------------------------------

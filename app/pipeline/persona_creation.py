@@ -233,10 +233,23 @@ async def process_persona(
         ref_audio_path = voice_ref_dir / f"ref_audio{voice_path.suffix}"
         await _prepare_voice_ref(voice_path, ref_audio_path)
 
-        # 4. Ditto idle 클립 렌더
+        # 4. Ditto idle 클립 렌더 + 메타 등록
         await store.set_step(persona_id, ProcessingStep.RENDERING_IDLE)
         photo_path = _pick_photo_file(persona_dir, persona_id)
-        await _render_idle_clips(photo_path, idle_dir, registry)
+        rendered_clips = await _render_idle_clips(photo_path, idle_dir, registry)
+        from uuid import uuid4 as _uuid4
+
+        for clip_path in rendered_clips:
+            try:
+                seq = int(clip_path.stem)
+            except ValueError:
+                continue
+            await repository.insert_persona_idle_clip(
+                key=_uuid4(),
+                persona_id=persona_id,
+                sequence_order=seq,
+                filesystem_path=str(clip_path),
+            )
 
         # 5. ready
         await store.set_step(persona_id, ProcessingStep.READY)

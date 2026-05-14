@@ -33,7 +33,6 @@ def _make_persona(persona_id: UUID, status: str = "ready") -> PersonaRecord:
     return PersonaRecord(
         personas_id=persona_id,
         owner_user_id=uuid4(),
-        id=None,
         name="고인",
         nickname="할아버지",
         status=status,
@@ -162,6 +161,11 @@ async def test_process_message_crisis_branch(tmp_path: Path, monkeypatch):
     assert events[0]["event"] == "crisis"
     # 위기 분기에선 history 갱신·합성 안 함.
     assert len(session.history) == 0
+    # safety_logs 행 1건 INSERT — 비식별 이벤트만.
+    logs = await repository.mock_get_safety_logs()
+    assert len(logs) == 1
+    assert logs[0].event_type == "crisis_keyword"
+    assert logs[0].action_katen == "block"
 
 
 # --- 라우터 (TestClient) ------------------------------------------------------
