@@ -28,9 +28,13 @@ soundfile>=0.12.1
 numpy>=1.26
 
 # --- ML / GPU 스택 (Blackwell 은 CUDA 12.8 wheel 필요) --------------------
-torch>=2.7.0
-torchaudio>=2.7.0
-torchvision>=0.20.0
+# torch / torchaudio / torchvision 모두 정확 짝 핀 — 하한만 두면 pip resolver 가
+# 메이저 신규 wheel 을 받았을 때 cu 빌드 채널이 어긋나 부팅 시 `Detected that
+# PyTorch and TorchAudio were compiled with different CUDA versions` RuntimeError.
+# torchvision 도 ABI 가 torch 메이저·마이너에 강결합이라 함께 정확 핀.
+torch==2.11.0
+torchaudio==2.11.0
+torchvision==0.26.0
 transformers>=4.50.0
 accelerate>=1.2.0
 safetensors>=0.4.5
