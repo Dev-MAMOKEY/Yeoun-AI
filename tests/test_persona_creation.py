@@ -101,6 +101,10 @@ async def test_process_persona_dummy_mode_full_flow(tmp_path: Path):
     assert any((root / "voice_ref").glob("ref_audio.*"))
     assert (root / "idle" / "0.mp4").exists()
     assert (root / "idle" / "1.mp4").exists()
+    # persona_idle_clips 메타 행 2건 INSERT — sequence_order 0/1 모두 기록.
+    clips = await repository.mock_get_idle_clips()
+    assert {c["sequence_order"] for c in clips} == {0, 1}
+    assert all(c["persona_id"] == persona_id for c in clips)
 
 
 async def test_process_persona_idempotent_skip(tmp_path: Path):
