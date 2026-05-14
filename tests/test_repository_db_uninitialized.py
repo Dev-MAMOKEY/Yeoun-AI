@@ -35,6 +35,31 @@ def test_raise_db_uninitialized_helper_raises_runtime_error():
         _raise_db_uninitialized("test_func", persona_id=uuid4())
 
 
+def test_raise_db_uninitialized_redacts_pii_keys(caplog):
+    """PII 키(user_id·persona_id 등) 가 ERROR 로그에 평문 노출되지 않고 redact 되는지.
+
+    명세서 「안전 정책: 원본 메시지·비식별 패턴 모니터링 전용」 정합성 회귀 방지.
+    """
+    import logging
+
+    user_id = uuid4()
+    persona_id = uuid4()
+    with caplog.at_level(logging.ERROR, logger="yeoun"):
+        with pytest.raises(RuntimeError):
+            _raise_db_uninitialized(
+                "insert_safety_log",
+                user_id=user_id,
+                persona_id=persona_id,
+                event_type="crisis_keyword",
+            )
+    log_text = "\n".join(rec.getMessage() for rec in caplog.records)
+    assert str(user_id) not in log_text, "user_id 가 평문 노출됨"
+    assert str(persona_id) not in log_text, "persona_id 가 평문 노출됨"
+    # 운영 진단 메타는 보존돼야 함.
+    assert "crisis_keyword" in log_text
+    assert "<redacted>" in log_text
+
+
 async def test_update_persona_status_raises_when_db_uninitialized(db_uninitialized):
     with pytest.raises(RuntimeError, match="sessionmaker"):
         await repository.update_persona_status(uuid4(), "PROCESSING")
