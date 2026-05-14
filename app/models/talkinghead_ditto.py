@@ -32,6 +32,41 @@ _DUMMY_MP4_BYTES = (
 DittoStatus = Literal["not_loaded", "loading", "loaded", "error"]
 
 
+class FaceDetectionError(RuntimeError):
+    """얼굴 미검출로 인한 Ditto 합성 실패.
+
+    호출자(`process_persona` · `process_message`) 가 이 도메인 예외를 잡아
+    `RuntimeError:` 타입 prefix 없이 `str(exc)` 만 사용자 친화 메시지로 노출한다.
+    """
+
+
+def _is_face_detection_failure(stderr_tail: str) -> bool:
+    """vendor 의 stderr 가 얼굴 미검출 패턴인지 판정.
+
+    `source2info._crop()` / `avatar_registrar` 가 얼굴을 못 찾으면 빈 결과를
+    반환 → 호출 측이 `img_crop, M_c2o, lmk203 = ...` 처럼 unpack 하다 None
+    `TypeError: cannot unpack non-iterable NoneType object` 으로 죽는다.
+    vendor 가 명시적 예외 raise 를 안 하므로 본 헬퍼가 stderr 마지막 부분을
+    보고 얼굴 미검출 케이스를 분류해 사용자 친화 메시지로 환원한다.
+
+    정밀도 강화: `cannot unpack non-iterable NoneType` 는 Python 의 generic
+    TypeError 라 같은 vendor 모듈의 다른 unpack 오류도 매칭될 수 있어
+    `_crop`(메서드명) 또는 `img_crop`(unpack 변수명) 추가 매칭으로 false positive
+    회피. 테스트가 본 헬퍼·메시지 상수를 직접 import 해 단위 검증한다.
+    """
+    return (
+        "cannot unpack non-iterable NoneType" in stderr_tail
+        and ("source2info" in stderr_tail or "avatar_registrar" in stderr_tail)
+        and ("_crop" in stderr_tail or "img_crop" in stderr_tail)
+    )
+
+
+_FACE_DETECTION_FAILURE_MESSAGE = (
+    "얼굴 검출 실패: 업로드한 사진에서 얼굴을 찾을 수 없습니다. "
+    "정면 얼굴이 또렷한 사진을 사용해 주세요."
+)
+
+
 class DittoTalkingHead:
     """Ditto-TalkingHead inference.py CLI 래퍼."""
 
@@ -148,6 +183,14 @@ class DittoTalkingHead:
             if proc.returncode != 0:
                 # 운영자가 stderr 마지막 부분을 보고 빠르게 진단할 수 있게 잘라 전달.
                 stderr_tail = stderr.decode(errors="replace")[-1000:]
+                # 얼굴 미검출은 사용자 입력(사진 자체) 문제라 진단 stderr 대신
+                # 한국어 친화 메시지로 환원. stderr_tail 은 운영자용 로그에만 남긴다.
+                if _is_face_detection_failure(stderr_tail):
+                    logger.error(
+                        "Ditto 얼굴 미검출 (사진 자체 문제): stderr_tail=%s",
+                        stderr_tail,
+                    )
+                    raise FaceDetectionError(_FACE_DETECTION_FAILURE_MESSAGE)
                 raise RuntimeError(
                     f"Ditto inference 실패 (rc={proc.returncode}): {stderr_tail}"
                 )

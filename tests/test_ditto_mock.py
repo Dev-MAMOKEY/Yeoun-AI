@@ -9,7 +9,12 @@ from pathlib import Path
 
 from app.config import get_settings
 from app.models.registry import ModelRegistry
-from app.models.talkinghead_ditto import DittoTalkingHead
+from app.models.talkinghead_ditto import (
+    DittoTalkingHead,
+    FaceDetectionError,
+    _FACE_DETECTION_FAILURE_MESSAGE,
+    _is_face_detection_failure,
+)
 
 
 async def test_ditto_dummy_load_then_unload():
@@ -63,6 +68,76 @@ async def test_ditto_dummy_render_idle_creates_output(tmp_path: Path):
 
     assert result == target
     assert target.exists()
+
+
+# --- 얼굴 미검출 stderr 분류 헬퍼 ---------------------------------------------
+
+
+def test_is_face_detection_failure_matches_source2info_pattern():
+    """vendor 의 source2info._crop NoneType 패턴을 얼굴 미검출로 분류."""
+    stderr_tail = (
+        '  File "/app/vendor/ditto-talkinghead/core/atomic_components/source2info.py", line 139\n'
+        "    img_crop, M_c2o, lmk203 = self._crop(img, last_lmk=last_lmk, **kwargs)\n"
+        "TypeError: cannot unpack non-iterable NoneType object\n"
+    )
+    assert _is_face_detection_failure(stderr_tail) is True
+
+
+def test_is_face_detection_failure_matches_avatar_registrar_pattern():
+    """avatar_registrar 경로 + _crop 매칭이 함께 있으면 얼굴 미검출로 분류."""
+    stderr_tail = (
+        "File avatar_registrar.py line 86\n"
+        "info = self.source2info(rgb, last_lmk, **kwargs)\n"
+        "img_crop, M_c2o, lmk203 = self._crop(...)\n"
+        "TypeError: cannot unpack non-iterable NoneType object\n"
+    )
+    assert _is_face_detection_failure(stderr_tail) is True
+
+
+def test_is_face_detection_failure_ignores_unrelated_typeerror():
+    """다른 컨텍스트의 NoneType TypeError 는 얼굴 미검출로 분류하지 않음 — false positive 방지."""
+    stderr_tail = (
+        "File '/app/other_module.py' line 42\n"
+        "TypeError: cannot unpack non-iterable NoneType object\n"
+    )
+    assert _is_face_detection_failure(stderr_tail) is False
+
+
+def test_is_face_detection_failure_requires_crop_marker():
+    """source2info 경로지만 _crop 가 아닌 다른 unpack 오류는 false positive 방지."""
+    stderr_tail = (
+        "File source2info.py line 200\n"
+        "a, b = some_other_helper()\n"
+        "TypeError: cannot unpack non-iterable NoneType object\n"
+    )
+    assert _is_face_detection_failure(stderr_tail) is False
+
+
+def test_face_detection_error_is_runtime_error_subclass():
+    """FaceDetectionError 는 RuntimeError 서브클래스 — 기존 except RuntimeError 호환."""
+    assert issubclass(FaceDetectionError, RuntimeError)
+    err = FaceDetectionError("얼굴 검출 실패: 사진 다시")
+    assert str(err) == "얼굴 검출 실패: 사진 다시"
+
+
+def test_is_face_detection_failure_ignores_other_errors():
+    """OOM·일반 RuntimeError 는 얼굴 미검출 분류 대상이 아님."""
+    stderr_tail = "CUDA failure 2: out of memory ; GPU=0"
+    assert _is_face_detection_failure(stderr_tail) is False
+
+
+def test_is_face_detection_failure_empty():
+    """빈 stderr 은 False."""
+    assert _is_face_detection_failure("") is False
+
+
+def test_face_detection_failure_message_is_korean_user_friendly():
+    """노출 메시지가 한국어 + 사용자 행동 가이드 포함."""
+    assert "얼굴" in _FACE_DETECTION_FAILURE_MESSAGE
+    assert "사진" in _FACE_DETECTION_FAILURE_MESSAGE
+
+
+# --- 라이프사이클 -------------------------------------------------------------
 
 
 async def test_registry_lifecycle_includes_ditto_in_dummy_mode():
