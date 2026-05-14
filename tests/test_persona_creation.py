@@ -25,7 +25,6 @@ def _make_persona(persona_id: UUID) -> PersonaRecord:
     return PersonaRecord(
         personas_id=persona_id,
         owner_user_id=uuid4(),
-        id=None,
         name="고인 이름",
         nickname="할아버지",
         status="created",

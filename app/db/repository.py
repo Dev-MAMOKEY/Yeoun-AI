@@ -58,7 +58,7 @@ async def get_persona(persona_id: UUID) -> PersonaRecord | None:
     async with sessionmaker() as session:
         result = await session.execute(
             text(
-                "SELECT personas_id, owner_user_id, id, name, nickname, status, created_at "
+                "SELECT personas_id, owner_user_id, name, nickname, status, created_at "
                 "FROM personas WHERE personas_id = :pid"
             ),
             {"pid": persona_id},
