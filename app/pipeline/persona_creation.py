@@ -192,6 +192,18 @@ async def _prepare_voice_ref(voice_path: Path, ref_audio_path: Path) -> None:
         raise RuntimeError(
             f"ref_audio trim 실패 (ffmpeg rc={proc.returncode}): {stderr_tail}"
         )
+
+    # 마이그레이션 잔재 정리 — 이전 동작이 `voice_ref/ref_audio.<voice_suffix>` (mp3
+    # 등) 로 저장했고 conversation.py 의 `glob("ref_audio.*")` 가 그 구 파일을 잘못
+    # 선택해 trim 결과 무시되는 회귀 차단. 새로 쓴 ref_audio.wav 외 동명 자원 제거.
+    for stray in ref_audio_path.parent.glob("ref_audio.*"):
+        if stray != ref_audio_path:
+            try:
+                stray.unlink(missing_ok=True)
+                logger.info("이전 ref_audio 잔재 제거: %s", stray)
+            except OSError:
+                logger.warning("이전 ref_audio 잔재 제거 실패: %s", stray)
+
     logger.info(
         "ref_audio trim+표준화: %s -> %s (%ds @ %dHz mono WAV)",
         voice_path, ref_audio_path, _REF_AUDIO_TRIM_SECONDS, _REF_AUDIO_SAMPLE_RATE,
@@ -266,7 +278,13 @@ async def process_persona(
         #    바꿔야 ref_text ↔ ref_audio 짝이 일치 (OmniVoice voice clone 품질 보장).
         await store.set_step(persona_id, ProcessingStep.EXTRACTING_REF)
         ref_audio_path = voice_ref_dir / "ref_audio.wav"
+        ref_audio_was_missing = not ref_audio_path.exists()
         await _prepare_voice_ref(voice_path, ref_audio_path)
+        # 새 trim 발생 시 이전 ref_text 와 짝 어긋날 위험 — 무효화해 재전사 강제.
+        # 두 멱등 스킵 조건이 독립적이라 ref_audio 만 재생성된 케이스의 회귀 차단.
+        if ref_audio_was_missing and ref_text_path.exists():
+            ref_text_path.unlink(missing_ok=True)
+            logger.info("ref_text 무효화 — 새 ref_audio trim 짝 맞춤 재전사 유도")
 
         # 3. Gemma audio-in 전사 — trim 된 ref_audio 만 전사해 한도 안 발화 매칭.
         await store.set_step(persona_id, ProcessingStep.TRANSCRIBING)
