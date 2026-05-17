@@ -68,11 +68,15 @@ def _make_padded_tone_wav(
 
 
 async def test_prepare_voice_ref_trims_to_8_seconds(_disable_ffmpeg_stub, tmp_path):
-    """30초 입력이 정확히 8초로 잘려 16kHz mono PCM WAV 로 저장되는지."""
+    """30초 톤 입력이 정확히 8초로 잘려 16kHz mono PCM WAV 로 저장되는지.
+
+    #65 silenceremove 도입 이후 입력을 무음이 아닌 톤으로 시드해야 함 — 무음
+    입력은 silenceremove 가 전체를 컷해 P0 fallback (RuntimeError) 분기로 빠짐.
+    """
     from app.pipeline.persona_creation import _prepare_voice_ref
 
     voice = tmp_path / "voice" / "long.wav"
-    _make_silent_wav(voice, seconds=30.0)
+    _make_padded_tone_wav(voice, silence_seconds=0.0, tone_seconds=30.0)
     ref = tmp_path / "voice_ref" / "ref_audio.wav"
 
     await _prepare_voice_ref(voice, ref)
@@ -83,7 +87,8 @@ async def test_prepare_voice_ref_trims_to_8_seconds(_disable_ffmpeg_stub, tmp_pa
         assert f.getframerate() == 16000, "16kHz 강제 실패"
         assert f.getsampwidth() == 2, "pcm_s16le 강제 실패"
         duration = f.getnframes() / f.getframerate()
-        # ffmpeg `-t 8` 은 정확히 8초 ± 1 프레임 수준.
+        # ffmpeg `-t 8` 은 silenceremove 의 asetpts=PTS-STARTPTS 재설정 후 8초
+        # ± 1 프레임. asetpts 가 빠져 있었다면 본 어서션이 깨져 회귀 즉시 포착.
         assert 7.9 < duration <= 8.1, f"trim 길이 어긋남: {duration:.3f}s"
 
 
@@ -145,6 +150,22 @@ async def test_prepare_voice_ref_strips_leading_silence(_disable_ffmpeg_stub, tm
         if int.from_bytes(head_frames[i : i + 2], "little", signed=True) != 0
     )
     assert non_zero > 0, "silenceremove 후에도 앞 100ms 가 여전히 무음"
+
+
+async def test_prepare_voice_ref_raises_when_input_all_silent(_disable_ffmpeg_stub, tmp_path):
+    """전체 무음 입력 → silenceremove 가 0초 wav 만들고 ffmpeg returncode 0 인 케이스
+    가드 — wave 길이 검증 후 사용자 친화 RuntimeError + 부분 파일 정리.
+    """
+    from app.pipeline.persona_creation import _prepare_voice_ref
+
+    voice = tmp_path / "voice" / "silent.wav"
+    _make_silent_wav(voice, seconds=10.0)
+    ref = tmp_path / "voice_ref" / "ref_audio.wav"
+
+    with pytest.raises(RuntimeError, match="너무 짧"):
+        await _prepare_voice_ref(voice, ref)
+
+    assert not ref.exists(), "P0 fallback 후 부분 wav 정리 실패"
 
 
 async def test_prepare_voice_ref_failure_cleans_partial(_disable_ffmpeg_stub, tmp_path):
