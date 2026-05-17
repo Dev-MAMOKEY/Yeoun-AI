@@ -1,9 +1,34 @@
 """테스트 공용 픽스처."""
 
+import shutil
+
 import pytest
 from fastapi.testclient import TestClient
 
 TEST_TOKEN = "test-internal-token"
+
+
+@pytest.fixture(autouse=True)
+def _stub_ffmpeg_trim(monkeypatch):
+    """`_prepare_voice_ref` 의 ffmpeg subprocess 호출을 단순 복사로 우회.
+
+    호스트 venv 에 ffmpeg 미설치 환경에서도 process_persona 흐름 테스트가 통과
+    하도록 격리. 운영(도커) 환경의 실제 ffmpeg trim 동작은 라이브 검증 책임 — 본
+    fixture 는 테스트 격리 목적이라 trim 의미(첫 8초 자르기) 자체는 검증하지 않음.
+    """
+    from app.pipeline import persona_creation
+
+    async def _fake_prepare(voice_path, ref_audio_path):
+        if ref_audio_path.exists():
+            return
+        ref_audio_path.parent.mkdir(parents=True, exist_ok=True)
+        await _async_copy(voice_path, ref_audio_path)
+
+    async def _async_copy(src, dst):
+        import asyncio as _asyncio
+        await _asyncio.to_thread(shutil.copy2, src, dst)
+
+    monkeypatch.setattr(persona_creation, "_prepare_voice_ref", _fake_prepare)
 
 
 @pytest.fixture(autouse=True)

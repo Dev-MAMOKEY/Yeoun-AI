@@ -142,13 +142,21 @@ async def _transcribe_voice(
     return text
 
 
-async def _prepare_voice_ref(voice_path: Path, ref_audio_path: Path) -> None:
-    """OmniVoice ref 자원으로 voice 파일을 voice_ref/ref_audio.<ext> 로 복사.
+# OmniVoice 권장 ref 길이 상한 (model card: "trimming it to 3-10s"). 8초가 권장
+# 범위 중간이고 짧은 한국어 문장 한두 개에 충분한 voice clone 컨텍스트.
+_REF_AUDIO_TRIM_SECONDS = 8
+# 16kHz mono PCM — OmniVoice / Hubert 기반 모델의 표준 입력 포맷.
+_REF_AUDIO_SAMPLE_RATE = 16_000
 
-    명세서는 "embedding 추출" 을 명시하지만 OmniVoice 가 embedding 추출 API 를
-    공개하지 않으므로 본 1차 구현은 매 합성 시 ref_audio + ref_text 를 그대로
-    재사용하는 방식. 본 helper 는 그 ref_audio 를 voice/ 의 후속 업로드와 분리된
-    안정적 경로(`voice_ref/`)에 복사한다.
+
+async def _prepare_voice_ref(voice_path: Path, ref_audio_path: Path) -> None:
+    """voice 파일을 OmniVoice 권장 한도(3~10s) 안으로 trim 해 `ref_audio.wav` 로 저장.
+
+    이전엔 사용자 업로드 voice 를 그대로 복사 → 30~90s 의 긴 ref 가 OmniVoice 권장
+    한도(3-10s) 를 6-9배 초과해 voice cloning quality 가 degraded 되며 합성 결과가
+    "내용 60% + 외계어 40%" 로 깨지는 회귀(#64). ffmpeg subprocess 로 첫 8s 만
+    잘라 16kHz mono PCM WAV 표준 포맷으로 저장. 호출자가 본 helper 직후 trim 된
+    ref_audio 를 Gemma 전사 입력으로 다시 사용해야 ref_text ↔ ref_audio 짝이 일치.
 
     멱등성: ref_audio_path 가 이미 존재하면 스킵.
     """
@@ -156,8 +164,50 @@ async def _prepare_voice_ref(voice_path: Path, ref_audio_path: Path) -> None:
         logger.info("ref_audio 멱등 스킵: %s", ref_audio_path)
         return
     ref_audio_path.parent.mkdir(parents=True, exist_ok=True)
-    await asyncio.to_thread(shutil.copy2, voice_path, ref_audio_path)
-    logger.info("ref_audio 복사: %s -> %s", voice_path, ref_audio_path)
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-loglevel", "error",
+        "-i", str(voice_path),
+        "-t", str(_REF_AUDIO_TRIM_SECONDS),
+        "-ac", "1",
+        "-ar", str(_REF_AUDIO_SAMPLE_RATE),
+        "-acodec", "pcm_s16le",
+        str(ref_audio_path),
+    ]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        # 부분 산출물이 다음 호출에서 멱등 스킵으로 오인되지 않도록 정리.
+        try:
+            ref_audio_path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("ref_audio trim 실패 후 부분 파일 정리 실패: %s", ref_audio_path)
+        stderr_tail = stderr.decode(errors="replace")[-500:]
+        raise RuntimeError(
+            f"ref_audio trim 실패 (ffmpeg rc={proc.returncode}): {stderr_tail}"
+        )
+
+    # 마이그레이션 잔재 정리 — 이전 동작이 `voice_ref/ref_audio.<voice_suffix>` (mp3
+    # 등) 로 저장했고 conversation.py 의 `glob("ref_audio.*")` 가 그 구 파일을 잘못
+    # 선택해 trim 결과 무시되는 회귀 차단. 새로 쓴 ref_audio.wav 외 동명 자원 제거.
+    for stray in ref_audio_path.parent.glob("ref_audio.*"):
+        if stray != ref_audio_path:
+            try:
+                stray.unlink(missing_ok=True)
+                logger.info("이전 ref_audio 잔재 제거: %s", stray)
+            except OSError:
+                logger.warning("이전 ref_audio 잔재 제거 실패: %s", stray)
+
+    logger.info(
+        "ref_audio trim+표준화: %s -> %s (%ds @ %dHz mono WAV)",
+        voice_path, ref_audio_path, _REF_AUDIO_TRIM_SECONDS, _REF_AUDIO_SAMPLE_RATE,
+    )
 
 
 async def _render_idle_clips(
@@ -224,14 +274,21 @@ async def process_persona(
         await store.set_step(persona_id, ProcessingStep.SELECTING_VOICE)
         voice_path = _pick_voice_file(persona_dir, persona_id)
 
-        # 2. Gemma audio-in 전사
-        await store.set_step(persona_id, ProcessingStep.TRANSCRIBING)
-        await _transcribe_voice(voice_path, ref_text_path, registry)
-
-        # 3. ref_audio 보관 (OmniVoice embedding API 미공개로 ref_audio 복사)
+        # 2. ref_audio trim+표준화 먼저 — Gemma 전사 입력을 trim 된 ref_audio 로
+        #    바꿔야 ref_text ↔ ref_audio 짝이 일치 (OmniVoice voice clone 품질 보장).
         await store.set_step(persona_id, ProcessingStep.EXTRACTING_REF)
-        ref_audio_path = voice_ref_dir / f"ref_audio{voice_path.suffix}"
+        ref_audio_path = voice_ref_dir / "ref_audio.wav"
+        ref_audio_was_missing = not ref_audio_path.exists()
         await _prepare_voice_ref(voice_path, ref_audio_path)
+        # 새 trim 발생 시 이전 ref_text 와 짝 어긋날 위험 — 무효화해 재전사 강제.
+        # 두 멱등 스킵 조건이 독립적이라 ref_audio 만 재생성된 케이스의 회귀 차단.
+        if ref_audio_was_missing and ref_text_path.exists():
+            ref_text_path.unlink(missing_ok=True)
+            logger.info("ref_text 무효화 — 새 ref_audio trim 짝 맞춤 재전사 유도")
+
+        # 3. Gemma audio-in 전사 — trim 된 ref_audio 만 전사해 한도 안 발화 매칭.
+        await store.set_step(persona_id, ProcessingStep.TRANSCRIBING)
+        await _transcribe_voice(ref_audio_path, ref_text_path, registry)
 
         # 4. Ditto idle 클립 렌더 + 메타 등록
         await store.set_step(persona_id, ProcessingStep.RENDERING_IDLE)
