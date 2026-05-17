@@ -149,11 +149,18 @@ _REF_AUDIO_TRIM_SECONDS = 8
 _REF_AUDIO_SAMPLE_RATE = 16_000
 # 앞 무음 자동 제거 — 모바일 녹음 흔한 1~3초 침묵 후 발화 패턴에서 8초 trim 이
 # 발화 5초 이하로 떨어지지 않도록. start_periods=1 으로 첫 무음 블록 한 번만 제거,
-# 중간·끝 무음은 보존. 임계 -45dB / 최소 길이 0.3s — 자연 발화 호흡 정도는 무음
+# 중간·끝 무음은 보존. 임계 -45dBFS / 최소 길이 0.3s — 자연 발화 호흡 정도는 무음
 # 으로 분류되지 않도록 보수적 설정 (#65 후속 fix).
+# asetpts=PTS-STARTPTS — silenceremove 후 타임스탬프 재설정 필수. 미지정 시 후속
+# `-t 8` 이 입력 타임스탬프 기준으로 trim 해 무음 제거된 만큼의 발화가 잘려 나감.
 _SILENCE_REMOVE_FILTER = (
-    "silenceremove=start_periods=1:start_duration=0.3:start_threshold=-45dB"
+    "silenceremove=start_periods=1:start_duration=0.3:start_threshold=-45dB,"
+    "asetpts=PTS-STARTPTS"
 )
+# silenceremove 가 전체 무음 입력에 대해 0초 출력을 만들어도 returncode 0 — 따로
+# 검증 안 하면 빈 ref_audio.wav 가 OmniVoice 에 들어가 voice clone 실패. 최소 1초
+# 미만이면 사용자 친화 RuntimeError 환원.
+_MIN_REF_AUDIO_DURATION_SECONDS = 1.0
 
 
 async def _prepare_voice_ref(voice_path: Path, ref_audio_path: Path) -> None:
@@ -202,6 +209,31 @@ async def _prepare_voice_ref(voice_path: Path, ref_audio_path: Path) -> None:
         stderr_tail = stderr.decode(errors="replace")[-500:]
         raise RuntimeError(
             f"ref_audio trim 실패 (ffmpeg rc={proc.returncode}): {stderr_tail}"
+        )
+
+    # silenceremove 가 전체 무음 입력에 대해 빈 wav 만들고 ffmpeg returncode 0 인 케이스
+    # 가드 — wave 헤더 읽어 실제 길이 검증.
+    import wave as _wave
+    try:
+        with _wave.open(str(ref_audio_path), "rb") as wf:
+            actual_duration = wf.getnframes() / wf.getframerate() if wf.getframerate() else 0.0
+    except (_wave.Error, OSError) as exc:
+        try:
+            ref_audio_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise RuntimeError(
+            f"ref_audio 출력 wav 검증 실패 ({type(exc).__name__}: {exc})"
+        ) from exc
+    if actual_duration < _MIN_REF_AUDIO_DURATION_SECONDS:
+        try:
+            ref_audio_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise RuntimeError(
+            f"ref_audio 가 너무 짧습니다 ({actual_duration:.2f}s < "
+            f"{_MIN_REF_AUDIO_DURATION_SECONDS}s) — 업로드한 음성이 전체 무음이거나 "
+            "발화가 너무 짧습니다. 또렷한 발화 음성을 업로드해 주세요."
         )
 
     # 마이그레이션 잔재 정리 — 이전 동작이 `voice_ref/ref_audio.<voice_suffix>` (mp3
