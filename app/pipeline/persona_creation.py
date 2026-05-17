@@ -147,6 +147,20 @@ async def _transcribe_voice(
 _REF_AUDIO_TRIM_SECONDS = 8
 # 16kHz mono PCM — OmniVoice / Hubert 기반 모델의 표준 입력 포맷.
 _REF_AUDIO_SAMPLE_RATE = 16_000
+# 앞 무음 자동 제거 — 모바일 녹음 흔한 1~3초 침묵 후 발화 패턴에서 8초 trim 이
+# 발화 5초 이하로 떨어지지 않도록. start_periods=1 으로 첫 무음 블록 한 번만 제거,
+# 중간·끝 무음은 보존. 임계 -45dBFS / 최소 길이 0.3s — 자연 발화 호흡 정도는 무음
+# 으로 분류되지 않도록 보수적 설정 (#65 후속 fix).
+# asetpts=PTS-STARTPTS — silenceremove 후 타임스탬프 재설정 필수. 미지정 시 후속
+# `-t 8` 이 입력 타임스탬프 기준으로 trim 해 무음 제거된 만큼의 발화가 잘려 나감.
+_SILENCE_REMOVE_FILTER = (
+    "silenceremove=start_periods=1:start_duration=0.3:start_threshold=-45dB,"
+    "asetpts=PTS-STARTPTS"
+)
+# silenceremove 가 전체 무음 입력에 대해 0초 출력을 만들어도 returncode 0 — 따로
+# 검증 안 하면 빈 ref_audio.wav 가 OmniVoice 에 들어가 voice clone 실패. 최소 1초
+# 미만이면 사용자 친화 RuntimeError 환원.
+_MIN_REF_AUDIO_DURATION_SECONDS = 1.0
 
 
 async def _prepare_voice_ref(voice_path: Path, ref_audio_path: Path) -> None:
@@ -154,9 +168,10 @@ async def _prepare_voice_ref(voice_path: Path, ref_audio_path: Path) -> None:
 
     이전엔 사용자 업로드 voice 를 그대로 복사 → 30~90s 의 긴 ref 가 OmniVoice 권장
     한도(3-10s) 를 6-9배 초과해 voice cloning quality 가 degraded 되며 합성 결과가
-    "내용 60% + 외계어 40%" 로 깨지는 회귀(#64). ffmpeg subprocess 로 첫 8s 만
-    잘라 16kHz mono PCM WAV 표준 포맷으로 저장. 호출자가 본 helper 직후 trim 된
-    ref_audio 를 Gemma 전사 입력으로 다시 사용해야 ref_text ↔ ref_audio 짝이 일치.
+    "내용 60% + 외계어 40%" 로 깨지는 회귀(#64). ffmpeg subprocess 로 앞 무음
+    자동 제거(#65) 후 첫 8s 만 잘라 16kHz mono PCM WAV 표준 포맷으로 저장. 호출자
+    가 본 helper 직후 trim 된 ref_audio 를 Gemma 전사 입력으로 다시 사용해야
+    ref_text ↔ ref_audio 짝이 일치.
 
     멱등성: ref_audio_path 가 이미 존재하면 스킵.
     """
@@ -170,6 +185,9 @@ async def _prepare_voice_ref(voice_path: Path, ref_audio_path: Path) -> None:
         "-y",
         "-loglevel", "error",
         "-i", str(voice_path),
+        # `-af` 가 `-t` 보다 먼저 적용돼 무음 제거 후 8초 trim 됨 — 즉 앞 무음이
+        # 길어도 실제 발화 8초가 확보된다.
+        "-af", _SILENCE_REMOVE_FILTER,
         "-t", str(_REF_AUDIO_TRIM_SECONDS),
         "-ac", "1",
         "-ar", str(_REF_AUDIO_SAMPLE_RATE),
@@ -191,6 +209,31 @@ async def _prepare_voice_ref(voice_path: Path, ref_audio_path: Path) -> None:
         stderr_tail = stderr.decode(errors="replace")[-500:]
         raise RuntimeError(
             f"ref_audio trim 실패 (ffmpeg rc={proc.returncode}): {stderr_tail}"
+        )
+
+    # silenceremove 가 전체 무음 입력에 대해 빈 wav 만들고 ffmpeg returncode 0 인 케이스
+    # 가드 — wave 헤더 읽어 실제 길이 검증.
+    import wave as _wave
+    try:
+        with _wave.open(str(ref_audio_path), "rb") as wf:
+            actual_duration = wf.getnframes() / wf.getframerate() if wf.getframerate() else 0.0
+    except (_wave.Error, OSError) as exc:
+        try:
+            ref_audio_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise RuntimeError(
+            f"ref_audio 출력 wav 검증 실패 ({type(exc).__name__}: {exc})"
+        ) from exc
+    if actual_duration < _MIN_REF_AUDIO_DURATION_SECONDS:
+        try:
+            ref_audio_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise RuntimeError(
+            f"ref_audio 가 너무 짧습니다 ({actual_duration:.2f}s < "
+            f"{_MIN_REF_AUDIO_DURATION_SECONDS}s) — 업로드한 음성이 전체 무음이거나 "
+            "발화가 너무 짧습니다. 또렷한 발화 음성을 업로드해 주세요."
         )
 
     # 마이그레이션 잔재 정리 — 이전 동작이 `voice_ref/ref_audio.<voice_suffix>` (mp3
